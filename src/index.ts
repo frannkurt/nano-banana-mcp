@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -12,7 +12,7 @@ import { fetchMedia } from "./download.js";
 import { slugify, writeImage } from "./image.js";
 import { ASPECT_KEYS, FlowError, nearestAspect, parseSize, type Aspect } from "./types.js";
 
-const server = new McpServer({ name: "flow-image-mcp", version: "0.1.0" });
+const server = new McpServer({ name: "nano-banana-mcp", version: "0.1.0" });
 
 type Content = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 
@@ -160,4 +160,4 @@ server.tool(
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error(`flow-image-mcp listo — CDP ${config.cdpUrl}, salida ${config.outputDir}, techo ${config.maxCost} puntos`);
+console.error(`nano-banana-mcp listo — CDP ${config.cdpUrl}, salida ${config.outputDir}, techo ${config.maxCost} puntos`);

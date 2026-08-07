@@ -1,11 +1,11 @@
 {
-  "name": "flow-image-mcp",
+  "name": "nano-banana-mcp",
   "version": "0.1.0",
-  "description": "MCP server for generating images with Google Flow at exact sizes and aspect ratios, downloading them straight to disk.",
+  "description": "MCP server for generating images with Google Flow (Nano Banana) at exact pixel sizes and aspect ratios, downloaded straight to disk.",
   "type": "module",
   "license": "Apache-2.0",
   "bin": {
-    "flow-image-mcp": "dist/index.js"
+    "nano-banana-mcp": "dist/index.js"
   },
   "files": [
     "dist",
@@ -36,10 +36,13 @@
   "keywords": [
     "mcp",
     "model-context-protocol",
+    "nano-banana",
     "google-flow",
     "image-generation",
-    "nano-banana",
+    "text-to-image",
+    "ai-images",
     "claude",
+    "claude-code",
     "design"
   ]
 }

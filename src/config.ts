@@ -1,4 +1,4 @@
-import * as os from "node:os";
+﻿import * as os from "node:os";
 import * as path from "node:path";
 
 /**
@@ -24,7 +24,7 @@ function envInt(name: string, fallback: number): number {
 export function loadConfig(): Config {
   return {
     cdpUrl: process.env.FLOW_CDP_URL || "http://127.0.0.1:9222",
-    outputDir: path.resolve(process.env.FLOW_OUTPUT_DIR || path.join(os.homedir(), "flow-images")),
+    outputDir: path.resolve(process.env.FLOW_OUTPUT_DIR || path.join(os.homedir(), "nano-banana-images")),
     maxCost: envInt("FLOW_MAX_COST", 0),
     generateTimeoutMs: envInt("FLOW_GENERATE_TIMEOUT_MS", 180_000),
   };

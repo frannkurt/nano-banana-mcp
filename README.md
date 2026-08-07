@@ -1,12 +1,18 @@
-# flow-image-mcp
+﻿# nano-banana-mcp
 
-Servidor MCP para generar imágenes con [Google Flow](https://labs.google/fx/tools/flow) desde cualquier cliente compatible —
-Claude Code, Claude Desktop, o el que uses— **en el tamaño exacto en píxeles que necesites**, descargadas directo a disco.
+**Servidor MCP para generar imágenes con Nano Banana, el modelo de imagen de [Google Flow](https://labs.google/fx/tools/flow)**,
+desde Claude Code, Claude Desktop o cualquier cliente compatible — **en el tamaño exacto en píxeles que necesites**,
+descargadas directo a disco. Gratis: las imágenes de Flow no consumen puntos.
 
-> **In English:** an MCP server that generates images with Google Flow at exact pixel dimensions. It attaches to a Chrome
-> window you have already signed into, drives the prompt composer, captures the generation response off the wire, and
-> crops the result to the size you asked for. It never handles your credentials. Images cost 0 credits. Docs below are in
-> Spanish; the code and error messages are too.
+```
+generate_image(prompt: "un zorro naranja sobre fondo blanco", size: "1200x630")
+-> imagenes/un-zorro-naranja-sobre-fondo-blanco.jpg   1200x630   0 puntos
+```
+
+> **In English:** an MCP server for Google Flow's Nano Banana image model, producing images at exact pixel dimensions.
+> It attaches to a Chrome window you have already signed into, drives the prompt composer, captures the generation
+> response off the wire, and crops the result to the size you asked for. It never handles your credentials, and images
+> cost 0 credits. The docs, code and error messages are in Spanish.
 
 ---
 
@@ -40,8 +46,8 @@ Los anclajes en la interfaz son nombres de ligature de Material Symbols (`crop_1
 ## Instalación
 
 ```bash
-git clone https://github.com/<usuario>/flow-image-mcp.git
-cd flow-image-mcp
+git clone https://github.com/frannkurt/nano-banana-mcp.git
+cd nano-banana-mcp
 npm install
 npm run build
 ```
@@ -55,19 +61,19 @@ Tiene que ser un perfil aparte del que usás todos los días.
 **Windows**
 
 ```bash
-"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="%USERPROFILE%\.flow-image-mcp\chrome" https://labs.google/fx/tools/flow
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="%USERPROFILE%\.nano-banana-mcp\chrome" https://labs.google/fx/tools/flow
 ```
 
 **macOS**
 
 ```bash
-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="$HOME/.flow-image-mcp/chrome" https://labs.google/fx/tools/flow
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="$HOME/.nano-banana-mcp/chrome" https://labs.google/fx/tools/flow
 ```
 
 **Linux**
 
 ```bash
-google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.flow-image-mcp/chrome" https://labs.google/fx/tools/flow
+google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.nano-banana-mcp/chrome" https://labs.google/fx/tools/flow
 ```
 
 ### 2. Iniciá sesión y abrí un proyecto
@@ -82,7 +88,7 @@ Sin un proyecto abierto no existe el compositor, y sin compositor no se puede ge
 En Claude Code:
 
 ```bash
-claude mcp add flow-image --env FLOW_CDP_URL=http://127.0.0.1:9222 --env FLOW_OUTPUT_DIR=./imagenes -- node /ruta/a/flow-image-mcp/dist/index.js
+claude mcp add nano-banana --env FLOW_CDP_URL=http://127.0.0.1:9222 --env FLOW_OUTPUT_DIR=./imagenes -- node /ruta/a/nano-banana-mcp/dist/index.js
 ```
 
 O a mano, en la configuración de tu cliente MCP:
@@ -90,9 +96,9 @@ O a mano, en la configuración de tu cliente MCP:
 ```json
 {
   "mcpServers": {
-    "flow-image": {
+    "nano-banana": {
       "command": "node",
-      "args": ["/ruta/a/flow-image-mcp/dist/index.js"],
+      "args": ["/ruta/a/nano-banana-mcp/dist/index.js"],
       "env": {
         "FLOW_CDP_URL": "http://127.0.0.1:9222",
         "FLOW_OUTPUT_DIR": "./imagenes",
@@ -141,7 +147,7 @@ sacar varios tamaños del mismo original.
 | Variable                    | Por defecto            | Qué hace                                          |
 | --------------------------- | ---------------------- | ------------------------------------------------- |
 | `FLOW_CDP_URL`              | `http://127.0.0.1:9222` | Endpoint de depuración del Chrome                 |
-| `FLOW_OUTPUT_DIR`           | `~/flow-images`        | Dónde se guardan las imágenes                     |
+| `FLOW_OUTPUT_DIR`           | `~/nano-banana-images`        | Dónde se guardan las imágenes                     |
 | `FLOW_MAX_COST`             | `0`                    | Techo de puntos por generación                    |
 | `FLOW_GENERATE_TIMEOUT_MS`  | `180000`               | Cuánto esperar la respuesta de Flow               |
 
