@@ -1,5 +1,6 @@
 import type { Page } from "playwright-core";
 import { FlowError } from "./types.js";
+import { M } from "./i18n.js";
 
 /** Firmas de archivo, para que un cuerpo JSON de error nunca se guarde como .jpg. */
 const SIGNATURES: { ext: string; test: (b: Buffer) => boolean }[] = [
@@ -58,5 +59,5 @@ export async function fetchMedia(page: Page, mediaId: string, signedUrl?: string
     }
   }
 
-  throw new FlowError(`No pude descargar el medio ${mediaId}.`, errors.join("; "));
+  throw new FlowError(M.downloadFailed(mediaId), errors.join("; "));
 }

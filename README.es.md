@@ -5,17 +5,19 @@
 <h1 align="center">nano-banana-mcp</h1>
 
 <p align="center">
-  <strong>Servidor MCP para generar imágenes con Nano Banana, el modelo de imagen de <a href="https://labs.google/fx/tools/flow">Google Flow</a> — en el tamaño exacto en píxeles que pidas, descargadas directo a disco.</strong>
+  <strong>Generación de imágenes con IA gratis, para Claude y cualquier cliente MCP.<br>
+  Sin API key. Sin cuenta de facturación. Sin costo por imagen. Solo la cuenta de Google que ya tenés.</strong>
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/costo-%240.00-success.svg" alt="Gratis">
+  <img src="https://img.shields.io/badge/API%20key-no%20hace%20falta-success.svg" alt="Sin API key">
   <a href="LICENSE"><img src="https://img.shields.io/badge/licencia-Apache--2.0-blue.svg" alt="Apache-2.0"></a>
   <img src="https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg" alt="Node 20+">
-  <img src="https://img.shields.io/badge/im%C3%A1genes-0%20puntos-orange.svg" alt="Las imágenes cuestan 0 puntos">
   <a href="README.md"><img src="https://img.shields.io/badge/docs-english-lightgrey.svg" alt="English"></a>
 </p>
 
-<p align="center"><sub><a href="README.md">Read in English</a></sub></p>
+<p align="center"><sub><a href="README.md">Read in English</a> · Español</sub></p>
 
 ---
 
@@ -28,6 +30,28 @@ generate_image(prompt: "un zorro naranja sobre fondo blanco", size: "1200x630")
 > del logo. Ninguna está retocada a mano.
 
 ---
+
+## Por qué este es distinto
+
+Todos los demás MCP de imágenes te cobran. Te registrás por una API key, enganchás una tarjeta y pagás por imagen
+—unos centavos cada una, que se vuelven plata de verdad apenas un modelo empieza a iterar sobre un diseño y tira
+nueve intentos de cada diez.
+
+Este no, porque no está llamando a ninguna API paga. Maneja **Nano Banana**, el modelo de imagen que vive adentro de
+[Google Flow](https://labs.google/fx/tools/flow), a través de la aplicación web a la que ya tenés acceso. Flow cobra
+puntos por el vídeo. **Las imágenes cuestan cero.**
+
+|                        | MCP de imágenes por API           | nano-banana-mcp                       |
+| ---------------------- | --------------------------------- | ------------------------------------- |
+| API key                | Obligatoria                       | **Ninguna**                           |
+| Cuenta de facturación  | Obligatoria                       | **Ninguna**                           |
+| Costo por imagen       | Centavos cada una, y se suman     | **$0.00**                             |
+| Puesta en marcha       | Registro, key, facturación, secreto | Entrar a Google en una ventana de Chrome |
+| Tamaños exactos        | Casi nunca                        | Sí                                    |
+| Imágenes de referencia | A veces                           | Sí                                    |
+
+La contrapartida es honesta y conviene decirla: necesita una **ventana de Chrome real y con tu sesión iniciada**, así
+que no corre headless ni en CI. Ese es el precio de no tener factura.
 
 ## Qué resuelve
 
@@ -121,6 +145,8 @@ gratis. Si el número no se puede leer, tampoco envía: no adivina.
 - Google Chrome
 - Una cuenta de Google con acceso a Flow
 
+Esa es la lista entera. Sin API key, sin proyecto en la nube, sin cuenta de facturación, sin ningún secreto que rotar.
+
 ## Instalación
 
 ```bash
@@ -190,6 +216,13 @@ O a mano, en la configuración de tu cliente MCP:
 ### 4. Verificá
 
 ```bash
+node scripts/doctor.mjs
+```
+
+Revisa en orden el navegador, la sesión, el proyecto, el compositor y el saldo, y se detiene en lo primero que está
+mal con las instrucciones para arreglarlo. Cuando salga limpio, probá una generación real:
+
+```bash
 node scripts/smoke.mjs "un zorro naranja sobre fondo blanco" 1200x630
 ```
 
@@ -224,12 +257,38 @@ sacar varios tamaños del mismo original.
 
 ## Configuración
 
-| Variable                   | Por defecto             | Qué hace                            |
-| -------------------------- | ----------------------- | ----------------------------------- |
-| `FLOW_CDP_URL`             | `http://127.0.0.1:9222` | Endpoint de depuración del Chrome   |
-| `FLOW_OUTPUT_DIR`          | `~/nano-banana-images`  | Dónde se guardan las imágenes       |
-| `FLOW_MAX_COST`            | `0`                     | Techo de puntos por generación      |
-| `FLOW_GENERATE_TIMEOUT_MS` | `180000`                | Cuánto esperar la respuesta de Flow |
+| Variable                   | Por defecto                    | Qué hace                                            |
+| -------------------------- | ------------------------------ | --------------------------------------------------- |
+| `FLOW_CDP_URL`             | `http://127.0.0.1:9222`        | Endpoint de depuración del Chrome                   |
+| `FLOW_OUTPUT_DIR`          | `~/nano-banana-images`         | Dónde se guardan las imágenes                       |
+| `FLOW_MAX_COST`            | `0`                            | Techo de puntos por generación                      |
+| `FLOW_GENERATE_TIMEOUT_MS` | `180000`                       | Cuánto esperar la respuesta de Flow                 |
+| `FLOW_LANG`                | locale del sistema, si no `en` | Idioma de los mensajes del servidor: `en` o `es`    |
+
+## Idiomas
+
+Se cruzan dos idiomas distintos en este proyecto y conviene no confundirlos.
+
+**El idioma de la interfaz de Flow** es el que tenga tu cuenta de Google, y este servidor nunca depende de él. Ancla
+en nombres de ligature de Material Symbols (`crop_16_9`, `add_2`, `image`) y etiquetas numéricas (`16:9`, `x4`): son
+identificadores, no copy, así que se leen igual en cualquier locale. Nunca busca texto traducible como "Añadir a la
+petición". Probado contra una interfaz en español; los anclajes no dependen del idioma por construcción.
+
+El único lugar que sí dependía era leer el costo. Ahora sale de la estructura del panel —el elemento hoja `<a>` que
+tiene el número— en vez de buscar la palabra que lo acompaña. Importa porque el portón de costo se niega a enviar
+cuando no puede leer el número: alguien con la interfaz en alemán, viendo "0 Punkte", no habría podido generar
+absolutamente nada. Seguro, pero inservible.
+
+**Los mensajes propios de este servidor** —errores, avisos, estado, y las descripciones de las herramientas MCP que
+lee tu modelo— vienen en inglés y en español. Se elige con `FLOW_LANG`, si no por el locale del sistema, y por
+defecto en inglés.
+
+```bash
+FLOW_LANG=es node dist/index.js
+```
+
+Los comentarios del código siguen en español. Eso es una decisión sobre cómo está escrito este código, no algo que
+un usuario vea nunca.
 
 ## Generar en paralelo
 
@@ -304,6 +363,19 @@ tamaño final en vez de dejar que se derive.
   envío y hay que ajustarlo.
 - No es un producto de Google, ni está avalado ni afiliado a Google.
 
+## Colaborar
+
+Sí, por favor — ver [CONTRIBUTING.md](CONTRIBUTING.md). Lo más valioso que se puede aportar es un arreglo para un
+cambio en la interfaz de Flow, y esa guía explica cómo diagnosticarlo en serio en vez de adivinar selectores.
+
+También se agradecen reportes de puesta en marcha en macOS y Linux (esto se construyó en Windows), y pruebas contra
+interfaces en idiomas distintos del español y el inglés.
+
+Al participar aceptás el [código de conducta](CODE_OF_CONDUCT.md). Los problemas de seguridad van
+[por acá](SECURITY.md), en privado.
+
 ## Licencia
 
-Apache-2.0. Ver [LICENSE](LICENSE).
+Apache-2.0. Ver [LICENSE](LICENSE) y [NOTICE](NOTICE).
+
+No es un producto de Google, ni está avalado ni afiliado a Google.

@@ -5,17 +5,19 @@
 <h1 align="center">nano-banana-mcp</h1>
 
 <p align="center">
-  <strong>An MCP server that generates images with Nano Banana, the image model behind <a href="https://labs.google/fx/tools/flow">Google Flow</a> — at the exact pixel size you ask for, saved straight to disk.</strong>
+  <strong>Free AI image generation for Claude and any MCP client.<br>
+  No API key. No billing account. No per-image cost. Just the Google account you already have.</strong>
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/cost-%240.00-success.svg" alt="Free">
+  <img src="https://img.shields.io/badge/API%20key-not%20required-success.svg" alt="No API key required">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache-2.0"></a>
   <img src="https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg" alt="Node 20+">
-  <img src="https://img.shields.io/badge/images-0%20credits-orange.svg" alt="Images cost 0 credits">
   <a href="README.es.md"><img src="https://img.shields.io/badge/docs-espa%C3%B1ol-lightgrey.svg" alt="Español"></a>
 </p>
 
-<p align="center"><sub><a href="README.es.md">Leer en español</a> · Code comments and error messages are in Spanish.</sub></p>
+<p align="center"><sub>English · <a href="README.es.md">Leer en español</a></sub></p>
 
 ---
 
@@ -28,6 +30,28 @@ generate_image(prompt: "an orange fox on a white background", size: "1200x630")
 > logo renders further down. Nothing was touched up by hand.
 
 ---
+
+## Why this one is different
+
+Every other image MCP server bills you. You register for an API key, attach a credit card, and pay per image —
+a few cents each, which quietly becomes real money once a model is iterating on a design and throwing away nine
+attempts out of ten.
+
+This one doesn't, because it isn't calling a paid API at all. It drives **Nano Banana**, the image model inside
+[Google Flow](https://labs.google/fx/tools/flow), through the web app you already have access to. Flow charges
+credits for video. **Images cost zero.**
+
+|                       | API-based image MCPs           | nano-banana-mcp                     |
+| --------------------- | ------------------------------ | ----------------------------------- |
+| API key               | Required                       | **None**                            |
+| Billing account       | Required                       | **None**                            |
+| Cost per image        | Cents each, and it adds up     | **$0.00**                           |
+| Setup                 | Register, key, billing, secret | Sign into Google in a Chrome window |
+| Exact pixel sizes     | Rarely                         | Yes                                 |
+| Reference images      | Sometimes                      | Yes                                 |
+
+The trade-off is honest and worth stating: it needs a **real Chrome window that you are signed into**, so it can't
+run headless or in CI. That's the price of not having a bill.
 
 ## What it solves
 
@@ -120,6 +144,8 @@ number can't be read, it doesn't send either — it won't guess.
 - Google Chrome
 - A Google account with access to Flow
 
+That's the whole list. No API key, no cloud project, no billing account, no secret to rotate.
+
 ## Install
 
 ```bash
@@ -189,6 +215,13 @@ Or by hand, in your MCP client's config:
 ### 4. Check it
 
 ```bash
+node scripts/doctor.mjs
+```
+
+That checks the browser, session, project, composer and balance in order, and stops at the first thing that's
+wrong with instructions for fixing it. Once it's clean, try a real generation:
+
+```bash
 node scripts/smoke.mjs "an orange fox on a white background" 1200x630
 ```
 
@@ -223,12 +256,36 @@ pulling several sizes out of the same original.
 
 ## Configuration
 
-| Variable                   | Default                  | What it does                        |
-| -------------------------- | ------------------------ | ----------------------------------- |
-| `FLOW_CDP_URL`             | `http://127.0.0.1:9222`  | Chrome's debugging endpoint         |
-| `FLOW_OUTPUT_DIR`          | `~/nano-banana-images`   | Where images are saved              |
-| `FLOW_MAX_COST`            | `0`                      | Credit ceiling per generation       |
-| `FLOW_GENERATE_TIMEOUT_MS` | `180000`                 | How long to wait for Flow to answer |
+| Variable                   | Default                  | What it does                                     |
+| -------------------------- | ------------------------ | ------------------------------------------------ |
+| `FLOW_CDP_URL`             | `http://127.0.0.1:9222`  | Chrome's debugging endpoint                      |
+| `FLOW_OUTPUT_DIR`          | `~/nano-banana-images`   | Where images are saved                           |
+| `FLOW_MAX_COST`            | `0`                      | Credit ceiling per generation                    |
+| `FLOW_GENERATE_TIMEOUT_MS` | `180000`                 | How long to wait for Flow to answer              |
+| `FLOW_LANG`                | system locale, else `en` | Language of this server's messages: `en` or `es` |
+
+## Languages
+
+Two different languages meet in this project, and it's worth not confusing them.
+
+**Flow's interface language** is whatever your Google account is set to, and this server never depends on it. It
+anchors on Material Symbols ligature names (`crop_16_9`, `add_2`, `image`) and numeric labels (`16:9`, `x4`) — those
+are identifiers, not copy, so they read the same in every locale. It never matches translatable text like "Add to
+prompt". Tested against a Spanish interface; the anchors are language-independent by construction.
+
+The one place that used to depend on it was reading the cost. That's now taken from the panel's structure — the leaf
+`<a>` element holding the number — instead of matching the word next to it. It matters because the cost gate refuses
+to send when it can't read the number, so a German user seeing "0 Punkte" would have been blocked from generating
+anything at all. Safe, but useless.
+
+**This server's own messages** — errors, warnings, status, and the MCP tool descriptions your model reads — come in
+English and Spanish. It picks from `FLOW_LANG`, falling back to your system locale, defaulting to English.
+
+```bash
+FLOW_LANG=es node dist/index.js
+```
+
+Code comments stay in Spanish. That's a choice about how this codebase is written, not something a user ever sees.
 
 ## Generating in parallel
 
@@ -299,6 +356,19 @@ instead of letting it be derived.
   needs adjusting.
 - Not a Google product. Not endorsed by or affiliated with Google.
 
+## Contributing
+
+Yes, please — see [CONTRIBUTING.md](CONTRIBUTING.md). The most valuable contribution is a fix for a Flow UI change,
+and that guide explains how to diagnose one properly instead of guessing at selectors.
+
+Also welcome: setup reports from macOS and Linux (this was built on Windows), and testing against interfaces in
+languages other than Spanish and English.
+
+By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). Security issues go
+[here](SECURITY.md), privately.
+
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+Not a Google product. Not endorsed by or affiliated with Google.

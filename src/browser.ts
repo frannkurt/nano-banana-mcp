@@ -1,6 +1,7 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
 import { config } from "./config.js";
 import { FlowError } from "./types.js";
+import { M } from "./i18n.js";
 
 const FLOW_HOST = "labs.google";
 const PROJECT_RE = /\/tools\/flow\/project\/([0-9a-f-]{36})/i;
@@ -18,13 +19,13 @@ async function attach(): Promise<BrowserContext> {
       browser = await chromium.connectOverCDP(config.cdpUrl);
     } catch (err) {
       throw new FlowError(
-        `No pude conectarme a Chrome en ${config.cdpUrl}: ${(err as Error).message}`,
-        "Abrí Chrome con --remote-debugging-port=9222 y un --user-data-dir propio, después entrá a labs.google/fx/tools/flow. Ver el README.",
+        M.chromeUnreachable(config.cdpUrl, (err as Error).message),
+        M.chromeUnreachableHint(),
       );
     }
   }
   const ctx = browser.contexts()[0];
-  if (!ctx) throw new FlowError("Chrome respondió pero no tiene ningún contexto abierto.");
+  if (!ctx) throw new FlowError(M.noContext());
   return ctx;
 }
 
@@ -40,10 +41,7 @@ export async function getFlowTab(): Promise<FlowTab> {
   const pages = context.pages().filter((p) => p.url().includes(FLOW_HOST));
 
   if (pages.length === 0) {
-    throw new FlowError(
-      "No hay ninguna pestaña de labs.google abierta en ese Chrome.",
-      "Entrá a labs.google/fx/tools/flow, iniciá sesión y abrí un proyecto.",
-    );
+    throw new FlowError(M.noFlowTab(), M.noFlowTabHint());
   }
 
   // Una pestaña dentro de un proyecto es la única donde existe el compositor.
@@ -73,10 +71,7 @@ export async function ensureFlowTabs(n: number): Promise<FlowTab[]> {
   const existing = await listFlowTabs();
   const first = existing[0];
   if (!first) {
-    throw new FlowError(
-      "No hay ninguna pestaña con un proyecto de Flow abierto.",
-      "Abrí un proyecto en labs.google/fx/tools/flow antes de generar.",
-    );
+    throw new FlowError(M.noProjectTab(), M.noProjectTabHint());
   }
 
   const tabs = [...existing];

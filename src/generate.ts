@@ -4,6 +4,7 @@ import { getFlowTab } from "./browser.js";
 import { applySettings, closeSettings, submitPrompt } from "./ui.js";
 import { attachReference, clearReferences, uploadImage } from "./reference.js";
 import { FlowError, type Aspect, type GeneratedImage } from "./types.js";
+import { M } from "./i18n.js";
 
 /** La llamada interna que dispara la página cuando se pide una imagen. */
 const GENERATE_ENDPOINT = "flowMedia:batchGenerateImages";
@@ -115,10 +116,7 @@ function collectGenerated(page: Page, esperadas: number, timeoutMs: number): Pro
         const cuerpo = await res.text().catch(() => "");
         return cerrar(() =>
           reject(
-            new FlowError(
-              `Flow devolvió ${res.status()} al generar.`,
-              cuerpo.slice(0, 300) || "Sin cuerpo en la respuesta.",
-            ),
+            new FlowError(M.generateFailed(res.status()), cuerpo.slice(0, 300) || M.emptyBody()),
           ),
         );
       }
@@ -137,10 +135,7 @@ function collectGenerated(page: Page, esperadas: number, timeoutMs: number): Pro
         if (encontradas.length > 0) resolve(encontradas);
         else
           reject(
-            new FlowError(
-              `Envié el prompt pero Flow no respondió en ${Math.round(timeoutMs / 1000)}s.`,
-              "Mirá la ventana del navegador: puede haber un cartel de error, un límite de uso o un pedido de reautenticación. No reenvíes a ciegas.",
-            ),
+            new FlowError(M.noAnswer(Math.round(timeoutMs / 1000)), M.noAnswerHint()),
           );
       });
     }, timeoutMs);
@@ -181,18 +176,13 @@ export async function generateImages(opts: GenerateOptions): Promise<GenerateRes
   // todavía es gratis. Si el número no se pudo leer, no adivinamos: paramos.
   if (quote.cost === null) {
     await closeSettings(page);
-    throw new FlowError(
-      "No pude leer cuánto va a costar esta generación, así que no la envío.",
-      `El panel decía: "${quote.raw.slice(0, 200)}". Si la interfaz de Flow cambió, abrí un issue con ese texto.`,
-    );
+    throw new FlowError(M.costUnreadable(), M.costUnreadableHint(quote.raw.slice(0, 200)));
   }
   if (quote.cost > maxCost) {
     await closeSettings(page);
     throw new FlowError(
-      `Flow cotiza ${quote.cost} puntos y el techo configurado es ${maxCost}. No envié nada, no se gastó nada.`,
-      maxCost === 0
-        ? "Este servidor viene limitado a generaciones gratuitas. Las imágenes cuestan 0; si esto cotiza más, revisá que el panel haya quedado en modo imagen."
-        : "Subí FLOW_MAX_COST solo si sabés lo que estás gastando.",
+      M.costTooHigh(quote.cost, maxCost),
+      maxCost === 0 ? M.costTooHighHintZero() : M.costTooHighHint(),
     );
   }
 
@@ -207,10 +197,7 @@ export async function generateImages(opts: GenerateOptions): Promise<GenerateRes
 
   const images = await cosecha;
   if (images.length === 0) {
-    throw new FlowError(
-      "Flow respondió correctamente pero no vino ninguna imagen.",
-      "Puede haber rechazado el prompt por políticas de contenido. Revisá el chat en el navegador.",
-    );
+    throw new FlowError(M.noImages(), M.noImagesHint());
   }
 
   return { images, quotedCost: quote.cost, quoteText: quote.raw, page };

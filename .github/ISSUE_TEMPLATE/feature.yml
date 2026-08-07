@@ -1,0 +1,38 @@
+name: Feature or idea
+description: Propose something new
+title: "[Idea] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Two things are out of scope permanently, and proposals for them will be closed:
+
+        - Anything touching reCAPTCHA, tokens, or automated sign-in.
+        - Headless or CI generation. It needs a real signed-in window.
+
+        Video and scene generation **are** on the roadmap and not started. Cost-gate design comes first there:
+        nothing that spends credits may run from a default.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: Describe the situation you're in, not the solution you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Would you like to build it?
+      options:
+        - label: I'd be up for opening a pull request for this
+          required: false

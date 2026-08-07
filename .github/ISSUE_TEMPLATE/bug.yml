@@ -1,0 +1,44 @@
+name: Bug report
+description: Something behaves incorrectly, outside of Flow's interface changing
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If the failure is about reading or clicking Flow's UI, use the **Flow's interface changed** template instead.
+
+        Don't paste raw network output — it can contain access tokens.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The exact tool call or script, including the size and aspect you asked for.
+      render: js
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `node scripts/doctor.mjs`
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      placeholder: "nano-banana-mcp commit abc1234, Node 22.4, Chrome 141, macOS 15"
+    validations:
+      required: true

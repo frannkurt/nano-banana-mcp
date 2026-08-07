@@ -1,3 +1,5 @@
+import { M } from "./i18n.js";
+
 /**
  * Las cinco relaciones de aspecto que ofrece Flow.
  *
@@ -35,11 +37,11 @@ export function nearestAspect(width: number, height: number): Aspect {
 /** Parsea "1200x630" -> {width, height}. */
 export function parseSize(size: string): { width: number; height: number } {
   const m = /^(\d+)\s*[x×]\s*(\d+)$/i.exec(size.trim());
-  if (!m) throw new Error(`Tamaño inválido: "${size}". Usá el formato ANCHOxALTO, por ejemplo 1200x630.`);
+  if (!m) throw new Error(M.badSize(size));
   const width = Number.parseInt(m[1]!, 10);
   const height = Number.parseInt(m[2]!, 10);
   if (width < 16 || height < 16 || width > 8192 || height > 8192) {
-    throw new Error(`Tamaño fuera de rango: ${width}x${height}. Permitido entre 16 y 8192 px por lado.`);
+    throw new Error(M.sizeOutOfRange(width, height));
   }
   return { width, height };
 }

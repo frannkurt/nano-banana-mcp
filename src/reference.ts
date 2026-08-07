@@ -1,6 +1,7 @@
 import type { Page } from "playwright-core";
 import * as path from "node:path";
 import { FlowError } from "./types.js";
+import { M } from "./i18n.js";
 
 /**
  * IMÁGENES DE REFERENCIA
@@ -29,10 +30,7 @@ export async function uploadImage(page: Page, filePath: string): Promise<{ media
 
   const input = await page.$('input[type="file"]');
   if (!input) {
-    throw new FlowError(
-      "No encontré el campo de subida de archivos en la página de Flow.",
-      "Confirmá que hay un proyecto abierto. Si la interfaz cambió, abrí un issue.",
-    );
+    throw new FlowError(M.noFileInput(), M.noFileInputHint());
   }
   await input.setInputFiles(filePath);
 
@@ -40,16 +38,16 @@ export async function uploadImage(page: Page, filePath: string): Promise<{ media
   try {
     res = await esperando;
   } catch {
-    throw new FlowError(`Subí ${fileName} pero Flow no confirmó la carga.`, "Revisá la ventana del navegador.");
+    throw new FlowError(M.uploadUnconfirmed(fileName), M.uploadUnconfirmedHint());
   }
   if (!res.ok()) {
-    throw new FlowError(`Flow devolvió ${res.status()} al subir ${fileName}.`);
+    throw new FlowError(M.uploadFailed(res.status(), fileName));
   }
 
   const cuerpo = (await res.json().catch(() => null)) as { media?: { name?: string } } | null;
   const mediaId = cuerpo?.media?.name;
   if (!mediaId) {
-    throw new FlowError(`Flow aceptó ${fileName} pero no devolvió un identificador de medio.`);
+    throw new FlowError(M.uploadNoId(fileName));
   }
   return { mediaId, fileName };
 }
@@ -147,7 +145,7 @@ export async function attachReference(page: Page, fileName: string): Promise<voi
     return { cx: r.x + r.width / 2, cy: r.y + r.height / 2 };
   });
   if (!abrir) {
-    throw new FlowError("No encontré el control para adjuntar medios junto al compositor.");
+    throw new FlowError(M.noAttachControl());
   }
   await clickAt(page, abrir.cx, abrir.cy);
 
@@ -186,10 +184,7 @@ export async function attachReference(page: Page, fileName: string): Promise<voi
 
   if (!item) {
     await page.keyboard.press("Escape");
-    throw new FlowError(
-      `No encontré ${fileName} en el selector de la biblioteca.`,
-      "Si recién lo subiste puede que Flow aún no lo haya indexado; si el nombre es de un archivo viejo, revisá que siga en el proyecto.",
-    );
+    throw new FlowError(M.notInLibrary(fileName), M.notInLibraryHint());
   }
 
   await clickAt(page, item.cx, item.cy);
@@ -203,10 +198,7 @@ export async function attachReference(page: Page, fileName: string): Promise<voi
 
   if (!(await composerHasImage(page))) {
     await closePicker(page);
-    throw new FlowError(
-      `Elegí ${fileName} en la biblioteca pero no quedó adjunto al compositor.`,
-      "Puede que Flow haya cambiado el botón de confirmar del selector. Abrí un issue.",
-    );
+    throw new FlowError(M.notAttached(fileName), M.notAttachedHint());
   }
 }
 

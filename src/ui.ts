@@ -1,5 +1,6 @@
 import type { Page } from "playwright-core";
 import { ASPECTS, FlowError, type Aspect } from "./types.js";
+import { M } from "./i18n.js";
 
 /**
  * MANEJO DE LA INTERFAZ
@@ -73,17 +74,14 @@ export async function openSettings(page: Page): Promise<void> {
   });
 
   if (!trigger) {
-    throw new FlowError(
-      "No encontré el control de configuración de generación en la página.",
-      "Confirmá que hay un proyecto de Flow abierto (labs.google/fx/tools/flow/project/<id>) y que la ventana no está tapada.",
-    );
+    throw new FlowError(M.noSettingsControl(), M.noSettingsControlHint());
   }
 
   await clickAt(page, trigger.cx, trigger.cy);
   await page.waitForTimeout(600);
 
   if (!(await settingsOpen(page))) {
-    throw new FlowError("Hice clic en el control de configuración pero el panel no se abrió.");
+    throw new FlowError(M.settingsWontOpen());
   }
 }
 
@@ -97,10 +95,7 @@ async function clickTab(page: Page, match: (text: string) => boolean, what: stri
   const tabs = await visibleTabs(page);
   const hit = tabs.find((t) => match(t.text));
   if (!hit) {
-    throw new FlowError(
-      `No encontré la opción de ${what} en el panel de configuración.`,
-      `Pestañas visibles: ${tabs.map((t) => t.text).join(" / ") || "(ninguna)"}`,
-    );
+    throw new FlowError(M.noOption(what), M.visibleTabs(tabs.map((t) => t.text).join(" / ")));
   }
   await clickAt(page, hit.cx, hit.cy);
   await page.waitForTimeout(400);
@@ -112,7 +107,45 @@ async function clickTab(page: Page, match: (text: string) => boolean, what: stri
  * gaste nada. Devuelve null si no se pudo interpretar, y el texto crudo para que
  * quien llame pueda reportar con honestidad qué vio.
  */
+async function readCostFromAnchor(page: Page): Promise<{ cost: number; raw: string } | null> {
+  const hit = await page.evaluate(() => {
+    // Panel = el ancestro más cercano de la pestaña crop_ que ya contiene los
+    // botones de cantidad. Acotar la búsqueda evita que un número suelto de
+    // cualquier otra parte de la página se haga pasar por el costo.
+    const tab = [...document.querySelectorAll('[role="tab"]')].find((el) =>
+      /^crop_/.test(((el as HTMLElement).innerText || "").trim()),
+    );
+    if (!tab) return null;
+
+    let panel: HTMLElement | null = tab.parentElement;
+    for (let i = 0; i < 8 && panel; i++) {
+      const botones = [...panel.querySelectorAll("button")].filter((b) =>
+        /^x\d+$/.test(((b as HTMLElement).innerText || "").trim()),
+      );
+      if (botones.length >= 2) break;
+      panel = panel.parentElement;
+    }
+    if (!panel) return null;
+
+    const hojas = [...panel.querySelectorAll("a")].filter(
+      (a) => (a as HTMLElement).offsetParent && a.children.length === 0 && /\d/.test((a as HTMLElement).innerText || ""),
+    );
+    const ultima = hojas[hojas.length - 1];
+    return ultima ? ((ultima as HTMLElement).innerText || "").trim() : null;
+  });
+
+  if (!hit) return null;
+  const m = /(\d[\d.,]*)/.exec(hit);
+  if (!m) return null;
+  const cost = Number.parseInt(m[1]!.replace(/[.,]/g, ""), 10);
+  return Number.isFinite(cost) ? { cost, raw: hit.replace(/\s+/g, " ").trim().slice(0, 300) } : null;
+}
+
 export async function readQuotedCost(page: Page): Promise<{ cost: number | null; raw: string }> {
+  // Primero por estructura, que vale en cualquier idioma.
+  const porAncla = await readCostFromAnchor(page);
+  if (porAncla) return porAncla;
+
   // Subimos por la cadena de ancestros del popover y devolvemos el texto de cada
   // nivel. Decidir cuál sirve se hace acá en Node y no dentro del navegador: la
   // línea del costo está varios niveles más arriba que las pestañas, y cuál es
@@ -134,7 +167,11 @@ export async function readQuotedCost(page: Page): Promise<{ cost: number | null;
     return texts;
   });
 
-  const COST_RE = /(\d[\d.,]*)\s*(?:puntos?|points?|cr[ée]ditos?|credits?)/i;
+  // Red de seguridad por texto, para si Flow reacomoda el panel y el ancla de
+  // arriba deja de existir. Cubre los idiomas que cubre y nada más: cuando no
+  // alcanza, el portón se niega a enviar, que es la falla correcta.
+  const COST_RE =
+    /(\d[\d.,]*)\s*(?:puntos?|points?|cr[ée]dit(?:o|e)?s?|credits?|punkte?|crediti|krediter|pontos?|クレジット|积分|点数)/i;
   for (const text of chain) {
     const m = COST_RE.exec(text);
     if (!m) continue;
@@ -159,12 +196,12 @@ export async function applySettings(page: Page, settings: Settings): Promise<{ c
 
   // Modo imagen. El ligature `image` distingue la pestaña de la de vídeo
   // (`videocam`) sin depender de las palabras "Imagen"/"Vídeo".
-  await clickTab(page, (t) => /^image\b/.test(t), "tipo de medio (imagen)");
+  await clickTab(page, (t) => /^image\b/.test(t), M.optionMediaType());
 
   const { ligature } = ASPECTS[settings.aspect];
-  await clickTab(page, (t) => t.startsWith(ligature), `relación de aspecto ${settings.aspect}`);
+  await clickTab(page, (t) => t.startsWith(ligature), M.optionAspect(settings.aspect));
 
-  await clickTab(page, (t) => t === `x${settings.count}`, `cantidad de salidas (x${settings.count})`);
+  await clickTab(page, (t) => t === `x${settings.count}`, M.optionCount(settings.count));
 
   return readQuotedCost(page);
 }
@@ -188,10 +225,7 @@ export async function submitPrompt(page: Page, prompt: string): Promise<void> {
   });
 
   if (!box) {
-    throw new FlowError(
-      "No encontré el compositor de prompts en la página.",
-      "Abrí un proyecto de Flow (labs.google/fx/tools/flow/project/<id>) antes de generar.",
-    );
+    throw new FlowError(M.noComposer(), M.noComposerHint());
   }
 
   await clickAt(page, box.cx, box.cy);

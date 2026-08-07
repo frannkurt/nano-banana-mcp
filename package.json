@@ -1,7 +1,7 @@
 {
   "name": "nano-banana-mcp",
   "version": "0.1.0",
-  "description": "MCP server for generating images with Google Flow (Nano Banana) at exact pixel sizes and aspect ratios, downloaded straight to disk.",
+  "description": "Free MCP server for AI image generation - no API key, no billing. Uses Nano Banana via Google Flow with your own Google account, at exact pixel sizes, with reference images. $0 per image.",
   "type": "module",
   "license": "Apache-2.0",
   "bin": {
@@ -37,13 +37,34 @@
   "keywords": [
     "mcp",
     "model-context-protocol",
+    "mcp-server",
+    "free",
+    "free-image-generation",
+    "no-api-key",
+    "zero-cost",
     "nano-banana",
     "google-flow",
+    "gemini-image",
     "image-generation",
     "text-to-image",
     "ai-images",
+    "image-to-image",
+    "reference-image",
     "claude",
     "claude-code",
-    "design"
-  ]
+    "claude-desktop",
+    "anthropic",
+    "design",
+    "automation",
+    "playwright"
+  ],
+  "homepage": "https://github.com/frannkurt/nano-banana-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/frannkurt/nano-banana-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/frannkurt/nano-banana-mcp/issues"
+  },
+  "author": "Franco Escudero (@frannkurt)"
 }

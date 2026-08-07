@@ -1,0 +1,67 @@
+name: Flow's interface changed
+description: Something that used to work now fails at reading or clicking Flow's UI
+title: "[UI] "
+labels: ["flow-ui"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the most common way this project breaks, and the most useful kind of report.
+
+        **Before you paste anything:** Flow's network responses can contain `access_token` values and JWTs.
+        Strip them. Never paste a raw token into a public issue.
+
+  - type: input
+    id: error
+    attributes:
+      label: The error message
+      description: Copy it exactly, in Spanish, as the server printed it.
+      placeholder: "No pude leer cuánto va a costar esta generación, así que no la envío."
+    validations:
+      required: true
+
+  - type: textarea
+    id: quoted
+    attributes:
+      label: The text the error included
+      description: >
+        Most of these errors quote what they did manage to read from the page. That quote is usually enough to fix
+        it in one place — paste it here.
+    validations:
+      required: false
+
+  - type: input
+    id: language
+    attributes:
+      label: Browser / Flow interface language
+      description: The UI anchors are meant to be language-independent, so this matters.
+      placeholder: "Spanish (Argentina)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: dump
+    attributes:
+      label: DOM dump of the candidates
+      description: >
+        See the debugging section in CONTRIBUTING.md for a script that prints visible controls with their geometry.
+        The geometry is what identifies the right element — plain text isn't enough.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: A screenshot of the panel or dialog involved. Drag the image in here.
+    validations:
+      required: false
+
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      placeholder: "nano-banana-mcp commit abc1234, Node 22.4, Chrome 141, Windows 11"
+    validations:
+      required: true

@@ -11,6 +11,7 @@ import { generateImages } from "./generate.js";
 import { fetchMedia } from "./download.js";
 import { slugify, writeImage } from "./image.js";
 import { ASPECT_KEYS, FlowError, nearestAspect, parseSize, type Aspect } from "./types.js";
+import { M } from "./i18n.js";
 
 const server = new McpServer({ name: "nano-banana-mcp", version: "0.1.0" });
 
@@ -34,21 +35,21 @@ async function preview(bytes: Buffer): Promise<Content> {
 
 server.tool(
   "flow_status",
-  "Comprueba la conexión con el Chrome de Google Flow: sesión iniciada, cuenta, proyecto abierto y saldo de puntos. Llamalo primero si algo falla.",
+  M.toolStatus(),
   {},
   async () => {
     try {
       const s = await readStatus();
       const lines = [
-        `Navegador:  conectado (${config.cdpUrl})`,
-        `Sesión:     ${s.signedIn ? `iniciada como ${s.account}` : "SIN INICIAR"}`,
-        `Proyecto:   ${s.projectId ?? "ninguno abierto"}`,
-        `Saldo:      ${s.credits ?? "desconocido"} puntos${s.tier ? ` (${s.tier})` : ""}`,
-        `Techo:      ${config.maxCost} puntos por generación`,
-        `Salida:     ${config.outputDir}`,
+        M.statusBrowser(config.cdpUrl),
+        M.statusSession(s.signedIn ? s.account : null),
+        M.statusProject(s.projectId),
+        M.statusCredits(s.credits, s.tier),
+        M.statusCeiling(config.maxCost),
+        M.statusOutput(config.outputDir),
       ];
       if (!s.projectId) {
-        lines.push("", "Abrí un proyecto en Flow: sin proyecto no existe el compositor y no se puede generar.");
+        lines.push("", M.statusNoProject());
       }
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     } catch (err) {
@@ -59,41 +60,33 @@ server.tool(
 
 server.tool(
   "generate_image",
-  "Genera una o varias imágenes con Google Flow y las guarda en disco. Podés pedir un tamaño exacto en píxeles (por ejemplo 1200x630): se genera en la relación de aspecto nativa más cercana y se recorta al tamaño pedido. Las imágenes no consumen puntos.",
+  M.toolGenerate(),
   {
-    prompt: z.string().min(1).describe("Descripción de la imagen. En cualquier idioma."),
+    prompt: z.string().min(1).describe(M.argPrompt()),
     size: z
       .string()
       .optional()
-      .describe('Tamaño exacto de salida, formato "ANCHOxALTO", por ejemplo "1200x630". Si se omite, se usa el nativo.'),
+      .describe(M.argSize()),
     aspect: z
       .enum(ASPECT_KEYS as [Aspect, ...Aspect[]])
       .optional()
-      .describe("Relación de aspecto nativa. Si se omite y hay `size`, se elige la más cercana."),
-    count: z.number().int().min(1).max(4).default(1).describe("Cuántas variantes generar (1 a 4)."),
+      .describe(M.argAspect()),
+    count: z.number().int().min(1).max(4).default(1).describe(M.argCount()),
     reference_images: z
       .array(z.string())
       .optional()
-      .describe(
-        "Rutas locales de imágenes a usar como referencia. Flow parte de ellas en vez de partir de cero, " +
-          "así que el prompt pasa a describir qué cambiar y no qué crear. Sirve para versionar un logo, " +
-          "iterar sobre un resultado anterior, o sostener un estilo entre piezas.",
-      ),
+      .describe(M.argReferenceImages()),
     reference_library_names: z
       .array(z.string())
       .optional()
-      .describe(
-        "Nombres de archivos que YA están en la biblioteca del proyecto, para adjuntarlos sin volver a subirlos. " +
-          "Usalo al iterar sobre la misma referencia: subir el mismo archivo en cada vuelta sólo deja filas " +
-          "duplicadas en la biblioteca y hace más lenta cada generación.",
-      ),
-    out_dir: z.string().optional().describe("Carpeta destino. Por defecto, la configurada en FLOW_OUTPUT_DIR."),
-    basename: z.string().optional().describe("Nombre base de los archivos. Por defecto se deriva del prompt."),
-    format: z.enum(["jpg", "png", "webp"]).default("jpg").describe("Formato de salida."),
+      .describe(M.argReferenceLibrary()),
+    out_dir: z.string().optional().describe(M.argOutDir()),
+    basename: z.string().optional().describe(M.argBasename()),
+    format: z.enum(["jpg", "png", "webp"]).default("jpg").describe(M.argFormat()),
     fit: z
       .enum(["cover", "contain"])
       .default("cover")
-      .describe('Cómo encajar en `size`: "cover" recorta para llenar, "contain" mete todo y rellena bordes.'),
+      .describe(M.argFit()),
   },
   async (args) => {
     try {
@@ -125,9 +118,9 @@ server.tool(
       }
 
       const header = [
-        `${images.length} imagen(es) generada(s). Costo: ${quotedCost} puntos.`,
-        `Relación nativa: ${aspect} (Flow devolvió ${images[0]?.width}x${images[0]?.height})`,
-        target ? `Recortadas a ${target.width}x${target.height} con fit=${args.fit}.` : "Sin recorte: tamaño nativo.",
+        M.resultHeader(images.length, quotedCost),
+        M.resultNative(aspect, images[0]?.width ?? 0, images[0]?.height ?? 0),
+        target ? M.resultCropped(target.width, target.height, args.fit) : M.resultNative0(),
         "",
         ...saved,
       ];
@@ -137,18 +130,13 @@ server.tool(
       // si el modelo hubiera generado a esa resolución.
       const nativo = images[0];
       if (target && nativo?.width && (target.width > nativo.width || target.height > nativo.height)) {
-        header.push(
-          "",
-          `Aviso: ${target.width}x${target.height} es más grande que el nativo de Flow (${nativo.width}x${nativo.height}).` +
-            " La imagen se amplió: esos píxeles de más son interpolados, no generados. Para más detalle real," +
-            " pedí un tamaño dentro del nativo.",
-        );
+        header.push("", M.upscaleWarning(target.width, target.height, nativo.width, nativo.height));
       }
 
       // Flow a veces reescribe o traduce el prompt; conviene saber qué pidió de verdad.
       const effective = images[0]?.effectivePrompt;
       if (effective && effective.trim() !== args.prompt.trim()) {
-        header.push("", `Prompt efectivo que usó Flow: ${effective.slice(0, 300)}`);
+        header.push("", M.effectivePrompt(effective.slice(0, 300)));
       }
 
       return { content: [{ type: "text" as const, text: header.join("\n") }, ...content] };
@@ -160,11 +148,11 @@ server.tool(
 
 server.tool(
   "download_image",
-  "Descarga una imagen ya existente en Flow a partir de su id de medio, con recorte opcional a un tamaño exacto.",
+  M.toolDownload(),
   {
-    media_id: z.string().describe("Id del medio, tal como lo devuelve generate_image."),
-    out_file: z.string().describe("Ruta de salida. La extensión decide el formato."),
-    size: z.string().optional().describe('Tamaño exacto, formato "ANCHOxALTO".'),
+    media_id: z.string().describe(M.argMediaId()),
+    out_file: z.string().describe(M.argOutFile()),
+    size: z.string().optional().describe(M.argSizePlain()),
     fit: z.enum(["cover", "contain"]).default("cover"),
   },
   async (args) => {
@@ -178,7 +166,7 @@ server.tool(
         content: [
           {
             type: "text" as const,
-            text: `Guardada en ${res.file} (${res.width}x${res.height}, ${Math.round(res.bytes / 1024)} KB)`,
+            text: M.savedAs(res.file, res.width, res.height, Math.round(res.bytes / 1024)),
           },
           await preview(bytes),
         ],
@@ -191,4 +179,4 @@ server.tool(
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error(`nano-banana-mcp listo — CDP ${config.cdpUrl}, salida ${config.outputDir}, techo ${config.maxCost} puntos`);
+console.error(M.ready(config.cdpUrl, config.outputDir, config.maxCost));

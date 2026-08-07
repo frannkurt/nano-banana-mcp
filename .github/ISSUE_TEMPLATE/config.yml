@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Setup trouble
+    url: https://github.com/frannkurt/nano-banana-mcp#troubleshooting
+    about: Most connection and "no composer found" problems are answered in the README. Try `node scripts/doctor.mjs` first.
+  - name: Report a security issue privately
+    url: https://github.com/frannkurt/nano-banana-mcp/security/advisories/new
+    about: Don't open a public issue for anything involving credentials, tokens or account access.
