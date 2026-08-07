@@ -2,6 +2,7 @@ import type { Page } from "playwright-core";
 import { config } from "./config.js";
 import { getFlowTab } from "./browser.js";
 import { applySettings, closeSettings, submitPrompt } from "./ui.js";
+import { attachReference, clearReferences, uploadImage } from "./reference.js";
 import { FlowError, type Aspect, type GeneratedImage } from "./types.js";
 
 /** La llamada interna que dispara la página cuando se pide una imagen. */
@@ -58,6 +59,21 @@ export interface GenerateOptions {
    * propia respuesta de red y no hay ambigüedad sobre qué imagen es de quién.
    */
   page?: Page;
+  /**
+   * Rutas locales de imágenes a usar como referencia. Se suben a la biblioteca
+   * del proyecto y se adjuntan al compositor antes de enviar el prompt.
+   *
+   * Cambian lo que hace el prompt: con una referencia adjunta Flow parte de esa
+   * imagen en vez de partir de cero, así que el texto pasa a describir qué
+   * cambiar y no qué crear.
+   */
+  referenceImages?: string[];
+  /**
+   * Nombres de archivos que YA están en la biblioteca del proyecto, para
+   * adjuntarlos sin volver a subirlos. Subir dos veces el mismo archivo sólo
+   * deja filas duplicadas y hace más lenta cada iteración.
+   */
+  referenceLibraryNames?: string[];
 }
 
 /** Si tras la última respuesta pasa este rato sin novedad, se entrega lo que haya. */
@@ -143,6 +159,21 @@ export interface GenerateResult {
 export async function generateImages(opts: GenerateOptions): Promise<GenerateResult> {
   const maxCost = opts.maxCost ?? config.maxCost;
   const page = opts.page ?? (await getFlowTab()).page;
+
+  // Una referencia olvidada de un turno anterior cambiaría la imagen sin que
+  // nada lo indique, y el resultado se le atribuiría al prompt. Se limpia
+  // siempre, se vayan a adjuntar referencias nuevas o no.
+  await clearReferences(page);
+
+  // Subir el mismo archivo dos veces deja filas duplicadas en la biblioteca y no
+  // aporta nada, así que lo ya subido se reusa por nombre.
+  for (const nombre of opts.referenceLibraryNames ?? []) {
+    await attachReference(page, nombre);
+  }
+  for (const ruta of opts.referenceImages ?? []) {
+    const { fileName } = await uploadImage(page, ruta);
+    await attachReference(page, fileName);
+  }
 
   const quote = await applySettings(page, { aspect: opts.aspect, count: opts.count });
 

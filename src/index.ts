@@ -71,6 +71,14 @@ server.tool(
       .optional()
       .describe("Relación de aspecto nativa. Si se omite y hay `size`, se elige la más cercana."),
     count: z.number().int().min(1).max(4).default(1).describe("Cuántas variantes generar (1 a 4)."),
+    reference_images: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Rutas locales de imágenes a usar como referencia. Flow parte de ellas en vez de partir de cero, " +
+          "así que el prompt pasa a describir qué cambiar y no qué crear. Sirve para versionar un logo, " +
+          "iterar sobre un resultado anterior, o sostener un estilo entre piezas.",
+      ),
     out_dir: z.string().optional().describe("Carpeta destino. Por defecto, la configurada en FLOW_OUTPUT_DIR."),
     basename: z.string().optional().describe("Nombre base de los archivos. Por defecto se deriva del prompt."),
     format: z.enum(["jpg", "png", "webp"]).default("jpg").describe("Formato de salida."),
@@ -88,6 +96,7 @@ server.tool(
         prompt: args.prompt,
         aspect,
         count: args.count,
+        referenceImages: args.reference_images,
       });
 
       const { page } = await getFlowTab();
