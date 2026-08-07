@@ -49,6 +49,15 @@ export interface GenerateOptions {
   /** Techo de costo. Por defecto el del entorno, que es 0 = solo gratis. */
   maxCost?: number;
   timeoutMs?: number;
+  /**
+   * Pestaña donde generar. Si se omite se usa la primera de Flow que aparezca.
+   *
+   * Pasarla explícitamente es lo que permite generar en paralelo: el compositor
+   * es un único elemento por pestaña, así que dos generaciones en la misma se
+   * pisan escribiendo el prompt. Con una pestaña por hilo cada una espera su
+   * propia respuesta de red y no hay ambigüedad sobre qué imagen es de quién.
+   */
+  page?: Page;
 }
 
 export interface GenerateResult {
@@ -60,7 +69,7 @@ export interface GenerateResult {
 
 export async function generateImages(opts: GenerateOptions): Promise<GenerateResult> {
   const maxCost = opts.maxCost ?? config.maxCost;
-  const { page } = await getFlowTab();
+  const page = opts.page ?? (await getFlowTab()).page;
 
   const quote = await applySettings(page, { aspect: opts.aspect, count: opts.count });
 

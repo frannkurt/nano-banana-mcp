@@ -52,6 +52,46 @@ export async function getFlowTab(): Promise<FlowTab> {
 }
 
 /**
+ * Todas las pestañas que tienen un proyecto abierto.
+ *
+ * Una por hilo es lo que habilita generar en paralelo: el cuello de botella no
+ * es la red sino el compositor, que es un único elemento por pestaña.
+ */
+export async function listFlowTabs(): Promise<FlowTab[]> {
+  const context = await attach();
+  return context
+    .pages()
+    .filter((p) => p.url().includes(FLOW_HOST) && PROJECT_RE.test(p.url()))
+    .map((page) => ({ page, context, projectId: PROJECT_RE.exec(page.url())?.[1] ?? null }));
+}
+
+/**
+ * Garantiza al menos `n` pestañas con el proyecto abierto, clonando la primera
+ * si faltan. Devuelve exactamente `n`.
+ */
+export async function ensureFlowTabs(n: number): Promise<FlowTab[]> {
+  const existing = await listFlowTabs();
+  const first = existing[0];
+  if (!first) {
+    throw new FlowError(
+      "No hay ninguna pestaña con un proyecto de Flow abierto.",
+      "Abrí un proyecto en labs.google/fx/tools/flow antes de generar.",
+    );
+  }
+
+  const tabs = [...existing];
+  while (tabs.length < n) {
+    const page = await first.context.newPage();
+    await page.goto(first.page.url(), { waitUntil: "domcontentloaded", timeout: 60_000 });
+    // React monta el compositor despues del load; sin esta espera el primer
+    // prompt de esa pestaña se escribiria en el vacio.
+    await page.waitForSelector('[contenteditable="true"]', { timeout: 60_000 });
+    tabs.push({ page, context: first.context, projectId: first.projectId });
+  }
+  return tabs.slice(0, n);
+}
+
+/**
  * Estado de sesión y saldo, leídos por API en vez de raspando el DOM.
  * Ambas llamadas corren dentro de la pestaña, así que la cookie la pone el
  * navegador y nosotros no vemos ningún token.
