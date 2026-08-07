@@ -337,6 +337,9 @@ defecto lo dejó pasar.
 
 ## Problemas frecuentes
 
+Corré primero `node scripts/doctor.mjs`: revisa toda la cadena en orden y frena en lo primero que está mal. Los
+mensajes de abajo son los del español; con `FLOW_LANG=en` vas a ver los equivalentes en inglés.
+
 **"No pude conectarme a Chrome"** — Chrome no está corriendo con `--remote-debugging-port=9222`, o lo abriste sin
 `--user-data-dir` propio y se pegó a una instancia que ya existía. Cerrá todas las ventanas de ese perfil y volvé a
 lanzarlo con el comando de arriba.
@@ -347,10 +350,14 @@ lanzarlo con el comando de arriba.
 `/project/`.
 
 **"No pude leer cuánto va a costar"** — la interfaz de Flow cambió. El mensaje de error incluye el texto que sí se
-leyó; abrí un issue pegándolo y se arregla en un solo lugar.
+leyó; abrí un issue pegándolo y se arregla en un solo lugar. Ojo que esto es una *negativa*, no un cuelgue: no se
+envió nada y no se gastó nada.
 
 **"No encontré X en el selector de la biblioteca"** — el archivo de referencia no está en la biblioteca de este
 proyecto, o el nombre no coincide. Revisá el nombre exacto con el que se subió.
+
+**"Elegí X en la biblioteca pero no quedó adjunto al compositor"** — se movió el botón de confirmar del selector.
+Abrí un issue con el template **Flow's interface changed**.
 
 **Se generó pero el recorte quedó mal** — probá `fit: "contain"`, o pedí una `aspect` explícita más cercana a tu
 tamaño final en vez de dejar que se derive.

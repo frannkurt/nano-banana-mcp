@@ -331,19 +331,27 @@ and a per-call confirmation. Nothing that spends credits will ever run because a
 
 ## Troubleshooting
 
-**"No pude conectarme a Chrome"** — Chrome isn't running with `--remote-debugging-port=9222`, or you launched it
+Run `node scripts/doctor.mjs` first — it checks the whole chain in order and stops at the first thing that's wrong.
+The messages below are the English ones; with `FLOW_LANG=es` you'll see the Spanish equivalents.
+
+**"Couldn't connect to Chrome at …"** — Chrome isn't running with `--remote-debugging-port=9222`, or you launched it
 without its own `--user-data-dir` and it attached to an existing instance. Close every window of that profile and
 relaunch with the command above.
 
-**"No hay ninguna pestaña de labs.google abierta"** — open Flow in that Chrome window.
+**"No labs.google tab is open in that Chrome"** — open Flow in that Chrome window.
 
-**"No encontré el compositor"** — you're on the project list, not inside a project. The URL must contain `/project/`.
+**"Couldn't find the prompt composer on the page"** — you're on the project list, not inside a project. The URL must
+contain `/project/`.
 
-**"No pude leer cuánto va a costar"** — Flow's interface changed. The error includes the text it did read; open an
-issue pasting it and it gets fixed in one place.
+**"I couldn't read what this generation would cost, so I'm not sending it"** — Flow's interface changed. The error
+includes the text it did read; open an issue pasting it and it gets fixed in one place. Note this is a *refusal*, not
+a crash: nothing was sent and nothing was spent.
 
-**"No encontré X en el selector de la biblioteca"** — the reference file isn't in this project's library, or the name
-doesn't match. Check the exact filename as it was uploaded.
+**"Couldn't find X in the library picker"** — the reference file isn't in this project's library, or the name doesn't
+match. Check the exact filename as it was uploaded.
+
+**"Selected X in the library but it didn't attach to the composer"** — the picker's confirm button moved. Open an
+issue with the **Flow's interface changed** template.
 
 **It generated but the crop is wrong** — try `fit: "contain"`, or pass an explicit `aspect` closer to your final size
 instead of letting it be derived.

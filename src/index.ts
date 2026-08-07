@@ -24,6 +24,18 @@ function fail(err: unknown) {
 }
 
 /**
+ * El estado se pega en informes de error y además queda en el contexto del
+ * modelo, así que la dirección va tapada: alcanza con poder confirmar que es la
+ * cuenta esperada, la dirección entera no aporta nada.
+ */
+function taparCorreo(correo: string | null): string | null {
+  if (!correo) return null;
+  const [usuario, dominio] = correo.split("@");
+  if (!dominio || !usuario) return "?";
+  return `${usuario.slice(0, 2)}${"*".repeat(Math.max(usuario.length - 2, 1))}@${dominio}`;
+}
+
+/**
  * Miniatura para que el modelo pueda ver lo que salió sin arrastrar un megabyte
  * de base64 por el protocolo. Sin esto, generar a ciegas y esperar que esté bien
  * es lo único que se puede hacer.
@@ -42,7 +54,7 @@ server.tool(
       const s = await readStatus();
       const lines = [
         M.statusBrowser(config.cdpUrl),
-        M.statusSession(s.signedIn ? s.account : null),
+        M.statusSession(s.signedIn ? taparCorreo(s.account) : null),
         M.statusProject(s.projectId),
         M.statusCredits(s.credits, s.tier),
         M.statusCeiling(config.maxCost),
