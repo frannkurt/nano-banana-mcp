@@ -60,6 +60,79 @@ export interface GenerateOptions {
   page?: Page;
 }
 
+/** Si tras la última respuesta pasa este rato sin novedad, se entrega lo que haya. */
+const SILENCIO_MS = 20_000;
+
+/**
+ * Cosecha las imágenes de una generación.
+ *
+ * Con `count` mayor que uno Flow NO devuelve un arreglo con todas: manda una
+ * respuesta HTTP separada por cada imagen, escalonadas por un par de segundos.
+ * Esperar "la próxima respuesta" y quedarse con esa —que es lo que hacía este
+ * código— descartaba silenciosamente las otras tres, y desde afuera parecía un
+ * límite de la cuenta.
+ *
+ * Por eso acá se escucha el flujo completo y se corta por cualquiera de tres
+ * vías: llegaron todas las esperadas, pasó un rato sin novedad, o se agotó el
+ * tiempo. Nunca se descarta lo ya recibido.
+ */
+function collectGenerated(page: Page, esperadas: number, timeoutMs: number): Promise<GeneratedImage[]> {
+  return new Promise<GeneratedImage[]>((resolve, reject) => {
+    const encontradas: GeneratedImage[] = [];
+    let cerrado = false;
+    let silencio: ReturnType<typeof setTimeout> | null = null;
+
+    const cerrar = (accion: () => void) => {
+      if (cerrado) return;
+      cerrado = true;
+      page.off("response", onResponse);
+      clearTimeout(duro);
+      if (silencio) clearTimeout(silencio);
+      accion();
+    };
+
+    const onResponse = async (res: import("playwright-core").Response) => {
+      if (cerrado) return;
+      if (!res.url().includes(GENERATE_ENDPOINT) || res.request().method() !== "POST") return;
+
+      if (!res.ok()) {
+        const cuerpo = await res.text().catch(() => "");
+        return cerrar(() =>
+          reject(
+            new FlowError(
+              `Flow devolvió ${res.status()} al generar.`,
+              cuerpo.slice(0, 300) || "Sin cuerpo en la respuesta.",
+            ),
+          ),
+        );
+      }
+
+      const nuevas = parseResponse(await res.json().catch(() => null));
+      if (nuevas.length === 0) return;
+      encontradas.push(...nuevas);
+
+      if (encontradas.length >= esperadas) return cerrar(() => resolve(encontradas));
+      if (silencio) clearTimeout(silencio);
+      silencio = setTimeout(() => cerrar(() => resolve(encontradas)), SILENCIO_MS);
+    };
+
+    const duro = setTimeout(() => {
+      cerrar(() => {
+        if (encontradas.length > 0) resolve(encontradas);
+        else
+          reject(
+            new FlowError(
+              `Envié el prompt pero Flow no respondió en ${Math.round(timeoutMs / 1000)}s.`,
+              "Mirá la ventana del navegador: puede haber un cartel de error, un límite de uso o un pedido de reautenticación. No reenvíes a ciegas.",
+            ),
+          );
+      });
+    }, timeoutMs);
+
+    page.on("response", onResponse);
+  });
+}
+
 export interface GenerateResult {
   images: GeneratedImage[];
   quotedCost: number | null;
@@ -97,34 +170,14 @@ export async function generateImages(opts: GenerateOptions): Promise<GenerateRes
   // Nos suscribimos ANTES de enviar: si la respuesta llegara rapidísimo, un
   // listener tardío se la perdería y quedaríamos esperando para siempre.
   const timeout = opts.timeoutMs ?? config.generateTimeoutMs;
-  const waiting = page.waitForResponse((r) => r.url().includes(GENERATE_ENDPOINT) && r.request().method() === "POST", {
-    timeout,
-  });
+  const cosecha = collectGenerated(page, opts.count, timeout);
 
   await submitPrompt(page, opts.prompt);
 
-  let response;
-  try {
-    response = await waiting;
-  } catch {
-    throw new FlowError(
-      `Envié el prompt pero Flow no respondió en ${Math.round(timeout / 1000)}s.`,
-      "Mirá la ventana del navegador: puede haber un cartel de error, un límite de uso o un pedido de reautenticación. No reenvíes a ciegas.",
-    );
-  }
-
-  if (!response.ok()) {
-    const body = await response.text().catch(() => "");
-    throw new FlowError(
-      `Flow devolvió ${response.status()} al generar.`,
-      body.slice(0, 300) || "Sin cuerpo en la respuesta.",
-    );
-  }
-
-  const images = parseResponse(await response.json().catch(() => null));
+  const images = await cosecha;
   if (images.length === 0) {
     throw new FlowError(
-      "Flow respondió correctamente pero no vino ninguna imagen en la respuesta.",
+      "Flow respondió correctamente pero no vino ninguna imagen.",
       "Puede haber rechazado el prompt por políticas de contenido. Revisá el chat en el navegador.",
     );
   }
