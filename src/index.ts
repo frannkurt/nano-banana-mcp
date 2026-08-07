@@ -79,6 +79,14 @@ server.tool(
           "así que el prompt pasa a describir qué cambiar y no qué crear. Sirve para versionar un logo, " +
           "iterar sobre un resultado anterior, o sostener un estilo entre piezas.",
       ),
+    reference_library_names: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Nombres de archivos que YA están en la biblioteca del proyecto, para adjuntarlos sin volver a subirlos. " +
+          "Usalo al iterar sobre la misma referencia: subir el mismo archivo en cada vuelta sólo deja filas " +
+          "duplicadas en la biblioteca y hace más lenta cada generación.",
+      ),
     out_dir: z.string().optional().describe("Carpeta destino. Por defecto, la configurada en FLOW_OUTPUT_DIR."),
     basename: z.string().optional().describe("Nombre base de los archivos. Por defecto se deriva del prompt."),
     format: z.enum(["jpg", "png", "webp"]).default("jpg").describe("Formato de salida."),
@@ -97,6 +105,7 @@ server.tool(
         aspect,
         count: args.count,
         referenceImages: args.reference_images,
+        referenceLibraryNames: args.reference_library_names,
       });
 
       const { page } = await getFlowTab();
