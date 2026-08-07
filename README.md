@@ -37,6 +37,16 @@ of them — an Open Graph card is 1200×630, a repo banner is 1456×180, an avat
 This server generates at the closest native ratio and crops to the exact size, using saliency detection so the crop
 doesn't decapitate your subject. Ask for `1200x630`, get a 1200×630 file.
 
+> **What "exact size" does and doesn't mean.** The model is not generating at your dimensions — Flow always returns
+> its own native resolution, around 1 megapixel (1376×768 for 16:9, 1024×1024 for 1:1). The exact size is produced
+> here, locally, by cropping and scaling that result. The file you get really is 1200×630; the pixels in it came from
+> a 1376×768 render.
+>
+> That's a genuine convenience when you're going **down** from native, which covers most web work. Going **up** it
+> will still hand you the file you asked for — request 3000×3000 and you get 3000×3000 — but those extra pixels are
+> interpolated, not generated. There is no more detail in them. The server prints a warning when this happens; if you
+> need real resolution beyond native, upscale deliberately with a tool built for it.
+
 **One generation, three sizes.** Same source image, cropped three ways — note how the crop follows the subject
 instead of blindly taking the centre:
 

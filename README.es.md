@@ -37,6 +37,16 @@ cae justo en una de ellas — un Open Graph son 1200×630, un banner de repo 145
 Este servidor genera en la relación nativa más cercana y recorta al tamaño exacto, con detección de saliencia para
 que el recorte no te decapite al sujeto. Le pedís `1200x630` y recibís un archivo de 1200×630.
 
+> **Qué quiere decir "tamaño exacto" y qué no.** El modelo no genera en tus dimensiones: Flow siempre devuelve su
+> resolución nativa, alrededor de 1 megapíxel (1376×768 para 16:9, 1024×1024 para 1:1). El tamaño exacto se produce
+> acá, localmente, recortando y escalando ese resultado. El archivo que recibís sí mide 1200×630; los píxeles que
+> tiene salieron de un render de 1376×768.
+>
+> Eso es una comodidad real cuando vas **para abajo** del nativo, que es casi todo el trabajo web. **Para arriba**
+> igual te va a entregar el archivo que pediste —pedís 3000×3000 y recibís 3000×3000— pero esos píxeles de más son
+> interpolados, no generados. No hay más detalle adentro. El servidor avisa cuando pasa; si necesitás resolución real
+> por encima del nativo, ampliá a propósito con una herramienta hecha para eso.
+
 **Una generación, tres tamaños.** El mismo original recortado de tres formas — mirá cómo el recorte sigue al sujeto
 en vez de agarrar el centro a ciegas:
 

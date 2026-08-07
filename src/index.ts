@@ -132,6 +132,19 @@ server.tool(
         ...saved,
       ];
 
+      // Pedir más grande que el nativo no genera más detalle: lo interpola. El
+      // archivo sale del tamaño pedido igual, así que sin avisar esto se lee como
+      // si el modelo hubiera generado a esa resolución.
+      const nativo = images[0];
+      if (target && nativo?.width && (target.width > nativo.width || target.height > nativo.height)) {
+        header.push(
+          "",
+          `Aviso: ${target.width}x${target.height} es más grande que el nativo de Flow (${nativo.width}x${nativo.height}).` +
+            " La imagen se amplió: esos píxeles de más son interpolados, no generados. Para más detalle real," +
+            " pedí un tamaño dentro del nativo.",
+        );
+      }
+
       // Flow a veces reescribe o traduce el prompt; conviene saber qué pidió de verdad.
       const effective = images[0]?.effectivePrompt;
       if (effective && effective.trim() !== args.prompt.trim()) {
