@@ -6,14 +6,15 @@ import sharp from "sharp";
 import * as path from "node:path";
 
 import { config } from "./config.js";
-import { getFlowTab, readStatus } from "./browser.js";
-import { generateImages } from "./generate.js";
+import { ensureFlowTabs, getFlowTab, readStatus } from "./browser.js";
+import { generateImages, startGeneration } from "./generate.js";
+import { listLibrary } from "./library.js";
 import { fetchMedia } from "./download.js";
 import { slugify, writeImage } from "./image.js";
 import { ASPECT_KEYS, FlowError, nearestAspect, parseSize, type Aspect } from "./types.js";
 import { M } from "./i18n.js";
 
-const server = new McpServer({ name: "nano-banana-mcp", version: "0.1.1" });
+const server = new McpServer({ name: "nano-banana-mcp", version: "0.2.0" });
 
 type Content = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 
@@ -198,6 +199,135 @@ server.tool(
           await preview(bytes),
         ],
       };
+    } catch (err) {
+      return fail(err);
+    }
+  },
+);
+
+server.tool(
+  "list_library",
+  M.toolLibrary(),
+  {
+    only: z.enum(["uploaded", "generated", "all"]).default("all").describe(M.argOnly()),
+  },
+  async (args) => {
+    try {
+      const { page, projectId } = await getFlowTab();
+      if (!projectId) {
+        throw new FlowError(M.noProjectTab(), M.noProjectTabHint());
+      }
+      const items = (await listLibrary(page, projectId)).filter((it) => args.only === "all" || it.kind === args.only);
+      if (items.length === 0) {
+        return { content: [{ type: "text" as const, text: M.libraryEmpty() }] };
+      }
+
+      const uploaded = items.filter((it) => it.kind === "uploaded").length;
+      const lines = items.map((it) => {
+        const tag = it.kind === "uploaded" ? M.tagUploaded() : M.tagGenerated();
+        const name = it.displayName || "(?)";
+        const extra = it.prompt && it.prompt !== name ? `  "${it.prompt.slice(0, 80)}"` : "";
+        return `[${tag}]  ${name}  ${it.width}x${it.height}  id ${it.mediaId}${extra}`;
+      });
+
+      const text = [M.libraryHeader(uploaded, items.length - uploaded), "", ...lines, "", M.libraryHint()].join("\n");
+      return { content: [{ type: "text" as const, text }] };
+    } catch (err) {
+      return fail(err);
+    }
+  },
+);
+
+server.tool(
+  "generate_batch",
+  M.toolBatch(),
+  {
+    jobs: z
+      .array(
+        z.object({
+          prompt: z.string().min(1),
+          size: z.string().optional(),
+          aspect: z.enum(ASPECT_KEYS as [Aspect, ...Aspect[]]).optional(),
+          basename: z.string().optional(),
+        }),
+      )
+      .min(1)
+      .max(4)
+      .describe(M.argJobs()),
+    out_dir: z.string().optional().describe(M.argOutDir()),
+    format: z.enum(["jpg", "png", "webp"]).default("jpg").describe(M.argFormat()),
+    fit: z.enum(["cover", "contain"]).default("cover").describe(M.argFit()),
+    background: z.string().optional().describe(M.argBackground()),
+  },
+  async (args) => {
+    try {
+      const tabs = await ensureFlowTabs(args.jobs.length);
+      const dir = path.resolve(args.out_dir ?? config.outputDir);
+
+      // Dos prompts parecidos no deben pisarse el archivo: si el slug se repite,
+      // el número de trabajo desambigua.
+      const usados = new Set<string>();
+      const baseDe = (job: { prompt: string; basename?: string }, i: number) => {
+        let base = slugify(job.basename ?? job.prompt);
+        if (usados.has(base)) base = `${base}-${i + 1}`;
+        usados.add(base);
+        return base;
+      };
+
+      // Fase de UI, de a una: Chrome congela el requestAnimationFrame de las
+      // pestañas de fondo y React no procesa los clics, así que cada pestaña se
+      // trae al frente solo para configurar y enviar. Son segundos por trabajo.
+      // La espera de la generación —lo que de verdad tarda— sí corre en paralelo.
+      type Started = { started: import("./generate.js").StartedGeneration; target: ReturnType<typeof parseSize> | null };
+      const enVuelo: (Started | { error: string })[] = [];
+      for (const [i, job] of args.jobs.entries()) {
+        const page = tabs[i]!.page;
+        try {
+          const target = job.size ? parseSize(job.size) : null;
+          const aspect: Aspect = job.aspect ?? (target ? nearestAspect(target.width, target.height) : "1:1");
+          await page.bringToFront();
+          const started = await startGeneration({ prompt: job.prompt, aspect, count: 1, page });
+          // Un rechazo tardío (timeout) no debe tumbar el proceso si otro trabajo
+          // falla primero: se maneja al cosechar, acá solo se evita el unhandled.
+          started.harvest.catch(() => {});
+          enVuelo.push({ started, target });
+        } catch (err) {
+          enVuelo.push({ error: (err as Error)?.message ?? String(err) });
+        }
+      }
+
+      const results = await Promise.all(
+        args.jobs.map(async (job, i) => {
+          const vuelo = enVuelo[i]!;
+          try {
+            if ("error" in vuelo) throw new Error(vuelo.error);
+            const images = await vuelo.started.harvest;
+            const img = images[0]!;
+            const bytes = await fetchMedia(vuelo.started.page, img.mediaId, img.signedUrl);
+            const out = path.join(dir, `${baseDe(job, i)}.${args.format}`);
+            const res = await writeImage(
+              bytes,
+              out,
+              vuelo.target ? { ...vuelo.target, fit: args.fit, background: args.background } : undefined,
+            );
+            return {
+              line: `${res.file}  (${res.width}x${res.height}, ${Math.round(res.bytes / 1024)} KB, id ${img.mediaId})`,
+              thumb: await preview(bytes),
+            };
+          } catch (err) {
+            const e = err as FlowError;
+            return {
+              line: M.batchJobFailed(i + 1, job.prompt.slice(0, 60), e?.message ?? String(err)),
+              thumb: null,
+            };
+          }
+        }),
+      );
+
+      const ok = results.filter((r) => r.thumb).length;
+      const text = [M.batchHeader(ok, args.jobs.length), "", ...results.map((r) => r.line)].join("\n");
+      const thumbs = results.map((r) => r.thumb).filter((t): t is Content => t !== null);
+      return { content: [{ type: "text" as const, text }, ...thumbs] };
     } catch (err) {
       return fail(err);
     }

@@ -151,7 +151,27 @@ export interface GenerateResult {
   page: Page;
 }
 
-export async function generateImages(opts: GenerateOptions): Promise<GenerateResult> {
+export interface StartedGeneration {
+  /** Se resuelve cuando llegan las imágenes. Rechaza si no llegó ninguna. */
+  harvest: Promise<GeneratedImage[]>;
+  quotedCost: number | null;
+  quoteText: string;
+  page: Page;
+}
+
+/**
+ * Deja una generación EN VUELO y devuelve sin esperarla.
+ *
+ * La separación en dos fases existe por cómo trata Chrome a las pestañas de
+ * fondo: les congela requestAnimationFrame, así que React no procesa los clics
+ * y la interfaz no responde. Manipular la UI exige la pestaña en primer plano.
+ * Esperar la respuesta de red, en cambio, funciona igual con la pestaña tapada.
+ *
+ * Entonces, para varias generaciones a la vez: la fase de UI —unos segundos por
+ * pestaña— se hace de a una con `bringToFront`, y la espera —que es lo que de
+ * verdad tarda— corre en paralelo para todas.
+ */
+export async function startGeneration(opts: GenerateOptions): Promise<StartedGeneration> {
   const maxCost = opts.maxCost ?? config.maxCost;
   const page = opts.page ?? (await getFlowTab()).page;
 
@@ -191,14 +211,20 @@ export async function generateImages(opts: GenerateOptions): Promise<GenerateRes
   // Nos suscribimos ANTES de enviar: si la respuesta llegara rapidísimo, un
   // listener tardío se la perdería y quedaríamos esperando para siempre.
   const timeout = opts.timeoutMs ?? config.generateTimeoutMs;
-  const cosecha = collectGenerated(page, opts.count, timeout);
+  const cosecha = collectGenerated(page, opts.count, timeout).then((images) => {
+    if (images.length === 0) {
+      throw new FlowError(M.noImages(), M.noImagesHint());
+    }
+    return images;
+  });
 
   await submitPrompt(page, opts.prompt);
 
-  const images = await cosecha;
-  if (images.length === 0) {
-    throw new FlowError(M.noImages(), M.noImagesHint());
-  }
+  return { harvest: cosecha, quotedCost: quote.cost, quoteText: quote.raw, page };
+}
 
-  return { images, quotedCost: quote.cost, quoteText: quote.raw, page };
+export async function generateImages(opts: GenerateOptions): Promise<GenerateResult> {
+  const started = await startGeneration(opts);
+  const images = await started.harvest;
+  return { images, quotedCost: started.quotedCost, quoteText: started.quoteText, page: started.page };
 }
