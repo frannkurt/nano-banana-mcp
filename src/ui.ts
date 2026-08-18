@@ -65,9 +65,14 @@ export async function openSettings(page: Page): Promise<void> {
     const leaves = [...document.querySelectorAll("*")].filter(
       (el) => (el as HTMLElement).offsetParent && el.querySelectorAll("*").length === 0,
     );
-    const hit = leaves.find(
-      (el) => /^crop_/.test(((el as HTMLElement).innerText || "").trim()) && !el.closest('[role="tab"]'),
-    );
+    const hit =
+      leaves.find(
+        (el) => /^crop_/.test(((el as HTMLElement).innerText || "").trim()) && !el.closest('[role="tab"]'),
+      ) ??
+      // Flow UI (2026-08) renders icons as aria-labels, not Material Symbols
+      // ligature text: the settings trigger is the "tune" button (leaf text
+      // "tune"), not a crop_* glyph. Fall back to it when no crop_* leaf exists.
+      leaves.find((el) => ((el as HTMLElement).innerText || "").trim() === "tune");
     if (!hit) return null;
     const r = hit.getBoundingClientRect();
     return { text: (hit as HTMLElement).innerText.trim(), cx: r.x + r.width / 2, cy: r.y + r.height / 2 };
@@ -89,12 +94,71 @@ export async function closeSettings(page: Page): Promise<void> {
   if (!(await settingsOpen(page))) return;
   await page.keyboard.press("Escape");
   await page.waitForTimeout(300);
+  if (!(await settingsOpen(page))) return;
+  // Flow UI (2026-08) moved settings to a fullscreen page; Escape doesn't leave
+  // it. Click the panel's "Back" (arrow_back + Back) button instead.
+  const back = await page.evaluate(() => {
+    const btns = [...document.querySelectorAll("button")].filter((b) => {
+      if (!(b as HTMLElement).offsetParent) return false;
+      const t = ((b as HTMLElement).innerText || "").trim().replace(/\s+/g, " ");
+      return /^arrow_back back$/i.test(t) || (b.getAttribute("aria-label") || "").trim() === "Back";
+    });
+    if (!btns.length) return null;
+    const b0 = btns[0];
+    if (!b0) return null;
+    const r = b0.getBoundingClientRect();
+    return { cx: r.x + r.width / 2, cy: r.y + r.height / 2 };
+  });
+  if (!back) return;
+  await clickAt(page, back.cx, back.cy);
+  await page.waitForTimeout(500);
 }
 
-async function clickTab(page: Page, match: (text: string) => boolean, what: string): Promise<void> {
+/**
+ * Flow UI (2026-08): the agent settings panel gates media generation behind a
+ * confirmation prompt ("Always" by default). That setting is the user's safety
+ * brake, so this server NEVER flips it on its own: only when `authorized`
+ * (FLOW_AGENT_AUTO_CONFIRM=1) it clicks "Never" (auto-spend) and persists with
+ * Save; otherwise it fails with a hint. When the control is absent (old UI),
+ * there is no gate and nothing to do.
+ */
+export async function enableAutoGenerate(page: Page, authorized: boolean): Promise<void> {
+  const never = await page.evaluate(() => {
+    const btns = [...document.querySelectorAll("button")].filter(
+      (b) => (b as HTMLElement).offsetParent && /never/i.test((b as HTMLElement).innerText || ""),
+    );
+    if (!btns.length) return null;
+    const b0 = btns[0];
+    if (!b0) return null;
+    const r = b0.getBoundingClientRect();
+    return { cx: r.x + r.width / 2, cy: r.y + r.height / 2 };
+  });
+  if (!never) return; // old UI: no confirmation gate
+  if (!authorized) {
+    throw new FlowError(M.autoConfirm(), M.autoConfirmHint());
+  }
+  await clickAt(page, never.cx, never.cy);
+  await page.waitForTimeout(300);
+  const save = await page.evaluate(() => {
+    const btns = [...document.querySelectorAll("button")].filter(
+      (b) => (b as HTMLElement).offsetParent && ((b as HTMLElement).innerText || "").trim() === "Save",
+    );
+    if (!btns.length) return null;
+    const b0 = btns[0];
+    if (!b0) return null;
+    const r = b0.getBoundingClientRect();
+    return { cx: r.x + r.width / 2, cy: r.y + r.height / 2 };
+  });
+  if (!save) return;
+  await clickAt(page, save.cx, save.cy);
+  await page.waitForTimeout(600);
+}
+
+async function clickTab(page: Page, match: (text: string) => boolean, what: string, optional = false): Promise<void> {
   const tabs = await visibleTabs(page);
   const hit = tabs.find((t) => match(t.text));
   if (!hit) {
+    if (optional) return;
     throw new FlowError(M.noOption(what), M.visibleTabs(tabs.map((t) => t.text).join(" / ")));
   }
   await clickAt(page, hit.cx, hit.cy);
@@ -196,7 +260,9 @@ export async function applySettings(page: Page, settings: Settings): Promise<{ c
 
   // Modo imagen. El ligature `image` distingue la pestaña de la de vídeo
   // (`videocam`) sin depender de las palabras "Imagen"/"Vídeo".
-  await clickTab(page, (t) => /^image\b/.test(t), M.optionMediaType());
+  // Flow UI (2026-08) dropped the media-type tab: image is the only default
+  // in the panel, so skip when absent instead of failing.
+  await clickTab(page, (t) => /^image\b/.test(t), M.optionMediaType(), true);
 
   const { ligature } = ASPECTS[settings.aspect];
   await clickTab(page, (t) => t.startsWith(ligature), M.optionAspect(settings.aspect));

@@ -194,8 +194,18 @@ export const M = {
     }),
   costUnreadableHint: (raw: string) =>
     p({
-      en: `The panel read: "${raw}". If Flow's interface changed, please open an issue with that text.`,
-      es: `El panel decía: "${raw}". Si la interfaz de Flow cambió, abrí un issue con ese texto.`,
+      en: `The panel read: "${raw}". The new agent UI (2026-08) quotes no cost at all; if that's the case, set FLOW_ALLOW_UNQUOTED_COST=1 to allow unquoted generations at your own risk. If the old UI shows a cost that failed to parse, please open an issue with that text.`,
+      es: `El panel decía: "${raw}". La nueva UI de agente (2026-08) no cotiza ningún costo; si es ese caso, poné FLOW_ALLOW_UNQUOTED_COST=1 para permitir generaciones sin cotizar bajo tu responsabilidad. Si la UI vieja muestra un costo que no pude parsear, abrí un issue con ese texto.`,
+    }),
+  autoConfirm: () =>
+    p({
+      en: "Flow asks for confirmation before generating, and this server never flips that setting on its own.",
+      es: "Flow pide confirmación antes de generar, y este servidor nunca cambia esa opción por su cuenta.",
+    }),
+  autoConfirmHint: () =>
+    p({
+      en: 'Open Settings and set "Confirm before generating" to Never, or set FLOW_AGENT_AUTO_CONFIRM=1 to let the server flip it for you.',
+      es: 'Abrí Settings y poné "Confirm before generating" en Never, o seteá FLOW_AGENT_AUTO_CONFIRM=1 para que el servidor lo cambie por vos.',
     }),
   costTooHigh: (cost: number, max: number) =>
     p({

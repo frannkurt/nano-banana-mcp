@@ -1,7 +1,7 @@
 import type { Page } from "playwright-core";
 import { config } from "./config.js";
 import { getFlowTab } from "./browser.js";
-import { applySettings, closeSettings, submitPrompt } from "./ui.js";
+import { applySettings, closeSettings, enableAutoGenerate, submitPrompt } from "./ui.js";
 import { attachReference, clearReferences, uploadImage } from "./reference.js";
 import { FlowError, type Aspect, type GeneratedImage } from "./types.js";
 import { M } from "./i18n.js";
@@ -81,6 +81,45 @@ export interface GenerateOptions {
 const SILENCIO_MS = 20_000;
 
 /**
+ * Cosecha los resultados de la UI nueva (2026-08): el agente de Flow habla por
+ * SSE (`flowCreationAgent:streamChat`) y entrega los medios generados como
+ * eventos `agentEvents[].toolResult` del tool `generate_image`; el endpoint
+ * antiguo (`flowMedia:batchGenerateImages`) ya no se dispara. Ambas rutas
+ * conviven: la UI vieja sigue viva en otras cuentas, así que el colector acepta
+ * las dos.
+ */
+function parseSseToolResults(payload: string): GeneratedImage[] {
+  const out: GeneratedImage[] = [];
+  for (const line of payload.split("\n")) {
+    if (!line.startsWith("data: ")) continue;
+    let json: unknown;
+    try {
+      json = JSON.parse(line.slice(6).trim());
+    } catch {
+      continue;
+    }
+    const events = (json as { agentMessage?: { agentEvents?: unknown[] } })?.agentMessage?.agentEvents;
+    for (const ev of events ?? []) {
+      const tr = (ev as { toolResult?: { toolName?: string; toolResult?: Record<string, unknown> } })
+        ?.toolResult;
+      if (!tr || tr.toolName !== "generate_image") continue;
+      const res = tr.toolResult as { media_id?: string; status?: string; display_name?: string };
+      if (!res.media_id || (res.status && res.status !== "success")) continue;
+      out.push({
+        mediaId: res.media_id,
+        width: 0,
+        height: 0,
+        aspect: "unknown",
+        seed: null,
+        signedUrl: null,
+        effectivePrompt: res.display_name ?? null,
+      });
+    }
+  }
+  return out;
+}
+
+/**
  * Cosecha las imágenes de una generación.
  *
  * Con `count` mayor que uno Flow NO devuelve un arreglo con todas: manda una
@@ -110,7 +149,10 @@ function collectGenerated(page: Page, esperadas: number, timeoutMs: number): Pro
 
     const onResponse = async (res: import("playwright-core").Response) => {
       if (cerrado) return;
-      if (!res.url().includes(GENERATE_ENDPOINT) || res.request().method() !== "POST") return;
+      const url = res.url();
+      const esSse = url.includes("streamChat");
+      if (!url.includes(GENERATE_ENDPOINT) && !esSse) return;
+      if (!esSse && res.request().method() !== "POST") return;
 
       if (!res.ok()) {
         const cuerpo = await res.text().catch(() => "");
@@ -121,7 +163,12 @@ function collectGenerated(page: Page, esperadas: number, timeoutMs: number): Pro
         );
       }
 
-      const nuevas = parseResponse(await res.json().catch(() => null));
+      let nuevas: GeneratedImage[] = [];
+      if (esSse) {
+        nuevas = parseSseToolResults(await res.text().catch(() => ""));
+      } else {
+        nuevas = parseResponse(await res.json().catch(() => null));
+      }
       if (nuevas.length === 0) return;
       encontradas.push(...nuevas);
 
@@ -193,18 +240,28 @@ export async function startGeneration(opts: GenerateOptions): Promise<StartedGen
   const quote = await applySettings(page, { aspect: opts.aspect, count: opts.count });
 
   // El portón. Se cierra ANTES de enviar, que es el único momento en que negarse
-  // todavía es gratis. Si el número no se pudo leer, no adivinamos: paramos.
-  if (quote.cost === null) {
+  // todavía es gratis. La UI nueva (2026-08) no cotiza el costo en el panel, así
+  // que "no se pudo leer" se niega por defecto: gastar créditos porque un default
+  // lo permitió es exactamente lo que este servidor no hace. La única salida es
+  // un opt-in explícito (FLOW_ALLOW_UNQUOTED_COST=1) para quien entiende qué
+  // habilita.
+  if (quote.cost === null && !config.allowUnquotedCost) {
     await closeSettings(page);
     throw new FlowError(M.costUnreadable(), M.costUnreadableHint(quote.raw.slice(0, 200)));
   }
-  if (quote.cost > maxCost) {
+  if (quote.cost !== null && quote.cost > maxCost) {
     await closeSettings(page);
     throw new FlowError(
       M.costTooHigh(quote.cost, maxCost),
       maxCost === 0 ? M.costTooHighHintZero() : M.costTooHighHint(),
     );
   }
+
+  // La UI nueva pide confirmación antes de gastar créditos ("Always" por
+  // defecto). Ese switch es el freno de seguridad de la persona: nunca se toca
+  // por cuenta propia, sólo con opt-in (FLOW_AGENT_AUTO_CONFIRM=1). En la UI
+  // vieja el control no existe y esto es un no-op.
+  await enableAutoGenerate(page, config.agentAutoConfirm);
 
   await closeSettings(page);
 

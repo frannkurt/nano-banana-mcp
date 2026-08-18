@@ -136,7 +136,9 @@ Japanese.
 
 **The cost gate closes before sending.** The server reads the cost *Flow itself* computes in its settings panel and
 aborts if it exceeds `FLOW_MAX_COST`, which defaults to 0. The refusal happens while refusing is still free. If the
-number can't be read, it doesn't send either — it won't guess.
+number can't be read, it doesn't send either — it won't guess. The new agent UI (2026-08) quotes no cost at all, so
+on that UI the gate refuses by default unless you opt in with `FLOW_ALLOW_UNQUOTED_COST=1` (see the Configuration
+table). Nothing that spends credits runs because a default let it.
 
 ## Requirements
 
@@ -281,6 +283,8 @@ something generated earlier, or pulling several sizes out of the same original.
 | `FLOW_OUTPUT_DIR`          | `~/nano-banana-images`   | Where images are saved                           |
 | `FLOW_MAX_COST`            | `0`                      | Credit ceiling per generation                    |
 | `FLOW_GENERATE_TIMEOUT_MS` | `180000`                 | How long to wait for Flow to answer              |
+| `FLOW_ALLOW_UNQUOTED_COST` | unset                    | `1` lets the server send when the panel quotes no cost (new agent UI). Off by default: refusing is the safe failure. |
+| `FLOW_AGENT_AUTO_CONFIRM`  | unset                    | `1` lets the server flip "Confirm before generating" to Never and Save so headless submissions go through. Off by default: the server never touches that switch on its own and fails with a hint instead. |
 | `FLOW_LANG`                | system locale, else `en` | Language of this server's messages: `en` or `es` |
 
 ## Languages
@@ -364,9 +368,12 @@ The messages below are the English ones; with `FLOW_LANG=es` you'll see the Span
 > generation settings control on the page"**, and your Flow settings open as a full page with a `tune` button
 > instead of a small popover, you have the new UI. It changes three things at once: the settings trigger, the
 > panel (which no longer quotes a cost, so the cost gate refuses to send), and the generation endpoint itself.
-> This is diagnosed in detail and being worked on in
-> [issue #1](https://github.com/frannkurt/nano-banana-mcp/issues/1) — there's nothing to fix on your end yet.
-> The rollout is gradual, so accounts still on the old interface are unaffected.
+> This server supports both interfaces: it detects which UI is active and handles the two generation endpoints
+> (`flowMedia:batchGenerateImages` and the SSE `flowCreationAgent:streamChat`). The new UI's panel quotes no
+> cost, so the gate refuses by default — set `FLOW_ALLOW_UNQUOTED_COST=1` to allow unquoted generations, and
+> `FLOW_AGENT_AUTO_CONFIRM=1` to let the server flip the "Confirm before generating" setting for headless use.
+> The rollout is gradual, so accounts still on the old interface are unaffected. Full diagnosis in
+> [issue #1](https://github.com/frannkurt/nano-banana-mcp/issues/1).
 
 **"Couldn't connect to Chrome at …"** — Chrome isn't running with `--remote-debugging-port=9222`, or you launched it
 without its own `--user-data-dir` and it attached to an existing instance. Close every window of that profile and
