@@ -316,6 +316,60 @@ export const M = {
       en: "Download an image that already exists in Flow by its media id, with optional cropping to an exact size.",
       es: "Descarga una imagen ya existente en Flow a partir de su id de medio, con recorte opcional a un tamaño exacto.",
     }),
+  toolLibrary: () =>
+    p({
+      en: "List the images in the Flow project library: uploads (reusable via reference_library_names without re-uploading) and generated images (re-downloadable by id with download_image).",
+      es: "Lista las imágenes de la biblioteca del proyecto de Flow: subidas (reutilizables vía reference_library_names sin volver a subirlas) y generadas (re-descargables por id con download_image).",
+    }),
+  toolBatch: () =>
+    p({
+      en: "Generate several DIFFERENT prompts at once, one browser tab per prompt, in parallel. Much faster than calling generate_image repeatedly. Up to 4 jobs; each can have its own size and filename. Reference images are not supported here — use generate_image for that.",
+      es: "Genera varios prompts DISTINTOS a la vez, una pestaña del navegador por prompt, en paralelo. Mucho más rápido que llamar generate_image repetidas veces. Hasta 4 trabajos; cada uno con su propio tamaño y nombre de archivo. No soporta imágenes de referencia: para eso está generate_image.",
+    }),
+  argOnly: () =>
+    p({
+      en: 'Filter: "uploaded" (reference uploads), "generated", or "all".',
+      es: 'Filtro: "uploaded" (subidas como referencia), "generated" (generadas) o "all" (todas).',
+    }),
+  argJobs: () =>
+    p({
+      en: "The jobs to run in parallel. Each needs a prompt; size (e.g. 1200x630), aspect and basename are optional per job.",
+      es: "Los trabajos a correr en paralelo. Cada uno lleva su prompt; size (p. ej. 1200x630), aspect y basename son opcionales por trabajo.",
+    }),
+  libraryFetchFailed: (status: number) =>
+    p({
+      en: `Couldn't read the project contents${status ? ` (HTTP ${status})` : ""}.`,
+      es: `No pude leer el contenido del proyecto${status ? ` (HTTP ${status})` : ""}.`,
+    }),
+  libraryFetchFailedHint: () =>
+    p({
+      en: "Check flow_status: the session may have expired or the tab may have navigated away from the project.",
+      es: "Mirá flow_status: puede haber caducado la sesión o la pestaña puede haber salido del proyecto.",
+    }),
+  libraryEmpty: () =>
+    p({ en: "The project library has no images yet.", es: "La biblioteca del proyecto todavía no tiene imágenes." }),
+  libraryHeader: (uploaded: number, generated: number) =>
+    p({
+      en: `Project library: ${uploaded} uploaded, ${generated} generated.`,
+      es: `Biblioteca del proyecto: ${uploaded} subidas, ${generated} generadas.`,
+    }),
+  tagUploaded: () => p({ en: "uploaded", es: "subida" }),
+  tagGenerated: () => p({ en: "generated", es: "generada" }),
+  libraryHint: () =>
+    p({
+      en: "Uploads can be attached again by passing their filename in reference_library_names; any image can be re-downloaded by id with download_image.",
+      es: "Las subidas se pueden volver a adjuntar pasando su nombre de archivo en reference_library_names; cualquier imagen se puede re-descargar por id con download_image.",
+    }),
+  batchHeader: (ok: number, total: number) =>
+    p({
+      en: `${ok} of ${total} jobs succeeded.`,
+      es: `${ok} de ${total} trabajos salieron bien.`,
+    }),
+  batchJobFailed: (n: number, prompt: string, why: string) =>
+    p({
+      en: `Job ${n} ("${prompt}") failed: ${why}`,
+      es: `El trabajo ${n} ("${prompt}") falló: ${why}`,
+    }),
   argPrompt: () =>
     p({ en: "Image description. In any language.", es: "Descripción de la imagen. En cualquier idioma." }),
   argSize: () =>
