@@ -99,6 +99,7 @@ server.tool(
       .enum(["cover", "contain"])
       .default("cover")
       .describe(M.argFit()),
+    background: z.string().optional().describe(M.argBackground()),
   },
   async (args) => {
     try {
@@ -117,17 +118,26 @@ server.tool(
       const dir = path.resolve(args.out_dir ?? config.outputDir);
       const base = args.basename ? slugify(args.basename) : slugify(args.prompt);
 
-      const content: Content[] = [];
-      const saved: string[] = [];
-
-      for (const [i, img] of images.entries()) {
-        const bytes = await fetchMedia(page, img.mediaId, img.signedUrl);
-        const suffix = images.length > 1 ? `-${i + 1}` : "";
-        const out = path.join(dir, `${base}${suffix}.${args.format}`);
-        const res = await writeImage(bytes, out, target ? { ...target, fit: args.fit } : undefined);
-        saved.push(`${res.file}  (${res.width}x${res.height}, ${Math.round(res.bytes / 1024)} KB, id ${img.mediaId})`);
-        content.push(await preview(bytes));
-      }
+      // Las descargas no comparten estado entre sí: en paralelo, que con count=4
+      // la espera es la de la más lenta y no la suma de las cuatro.
+      const results = await Promise.all(
+        images.map(async (img, i) => {
+          const bytes = await fetchMedia(page, img.mediaId, img.signedUrl);
+          const suffix = images.length > 1 ? `-${i + 1}` : "";
+          const out = path.join(dir, `${base}${suffix}.${args.format}`);
+          const res = await writeImage(
+            bytes,
+            out,
+            target ? { ...target, fit: args.fit, background: args.background } : undefined,
+          );
+          return {
+            line: `${res.file}  (${res.width}x${res.height}, ${Math.round(res.bytes / 1024)} KB, id ${img.mediaId})`,
+            thumb: await preview(bytes),
+          };
+        }),
+      );
+      const content: Content[] = results.map((r) => r.thumb);
+      const saved = results.map((r) => r.line);
 
       const header = [
         M.resultHeader(images.length, quotedCost),
@@ -166,6 +176,7 @@ server.tool(
     out_file: z.string().describe(M.argOutFile()),
     size: z.string().optional().describe(M.argSizePlain()),
     fit: z.enum(["cover", "contain"]).default("cover"),
+    background: z.string().optional().describe(M.argBackground()),
   },
   async (args) => {
     try {
@@ -173,7 +184,11 @@ server.tool(
       const bytes = await fetchMedia(page, args.media_id);
       const target = args.size ? parseSize(args.size) : null;
       const out = path.resolve(args.out_file);
-      const res = await writeImage(bytes, out, target ? { ...target, fit: args.fit } : undefined);
+      const res = await writeImage(
+        bytes,
+        out,
+        target ? { ...target, fit: args.fit, background: args.background } : undefined,
+      );
       return {
         content: [
           {

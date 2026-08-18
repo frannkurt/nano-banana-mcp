@@ -367,6 +367,11 @@ export const M = {
       en: 'How to fit into `size`: "cover" crops to fill, "contain" fits everything and pads the edges.',
       es: 'Cómo encajar en `size`: "cover" recorta para llenar, "contain" mete todo y rellena bordes.',
     }),
+  argBackground: () =>
+    p({
+      en: 'Padding color for fit="contain", as a CSS color ("#0f172a", "black"). White by default.',
+      es: 'Color de relleno para fit="contain", como color CSS ("#0f172a", "black"). Blanco por defecto.',
+    }),
   argMediaId: () =>
     p({ en: "Media id, as returned by generate_image.", es: "Id del medio, tal como lo devuelve generate_image." }),
   argOutFile: () =>

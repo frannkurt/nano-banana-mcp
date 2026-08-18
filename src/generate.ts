@@ -18,7 +18,7 @@ const GENERATE_ENDPOINT = "flowMedia:batchGenerateImages";
  * sus dimensiones reales y la URL firmada. Es determinístico y no depende de
  * cómo esté renderizada la interfaz ni en qué idioma.
  */
-function parseResponse(payload: unknown): GeneratedImage[] {
+export function parseResponse(payload: unknown): GeneratedImage[] {
   const media = (payload as { media?: unknown[] })?.media;
   if (!Array.isArray(media) || media.length === 0) return [];
 
