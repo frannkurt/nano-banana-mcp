@@ -246,14 +246,33 @@ Estado de la conexión: sesión, cuenta, proyecto abierto, saldo de puntos. Empe
 | `basename`                | string                          | derivado del prompt | Nombre base de los archivos                                        |
 | `format`                  | `jpg` `png` `webp`              | `jpg`               | Formato de salida                                                  |
 | `fit`                     | `cover` `contain`               | `cover`             | `cover` recorta para llenar, `contain` rellena los bordes          |
+| `background`              | color CSS                       | `#ffffff`           | Color de relleno cuando `fit` es `contain`                         |
 
 Devuelve las rutas guardadas, el id de cada medio y una miniatura de cada resultado, para que el modelo pueda ver qué
 salió y decidir si vale la pena reintentar.
 
+### `generate_batch`
+
+Genera varios prompts **distintos** a la vez: una pestaña del navegador por prompt, hasta 4 trabajos, cada uno con su
+`size`, `aspect` y `basename` opcionales. `out_dir`, `format`, `fit` y `background` son compartidos.
+
+Chrome congela el `requestAnimationFrame` de las pestañas de fondo, así que la interfaz solo se puede manejar en la
+que está al frente. La herramienta parte cada trabajo en dos fases: la de UI (configurar + enviar, unos segundos)
+corre de a una pestaña, trayendo cada una al frente; la espera de la respuesta de Flow —que es lo que de verdad
+tarda— corre en paralelo para todas. Dos trabajos salen en más o menos el tiempo de uno y medio.
+
+Un trabajo fallido no hunde al resto: recibís los archivos que salieron bien y el error puntual de los que no.
+
+### `list_library`
+
+Lista las imágenes de la biblioteca del proyecto, más recientes primero: las subidas (con el nombre de archivo exacto
+que espera `reference_library_names`) y las generadas (con su prompt y su id de medio). Se lee por la API del
+proyecto, sin tocar la interfaz. Se filtra con `only`: `uploaded`, `generated` o `all`.
+
 ### `download_image`
 
-Baja una imagen ya existente por su id de medio, con recorte opcional. Sirve para recuperar algo generado antes o para
-sacar varios tamaños del mismo original.
+Baja una imagen ya existente por su id de medio, con recorte opcional (`size`, `fit`, `background`). Sirve para
+recuperar algo generado antes o para sacar varios tamaños del mismo original.
 
 ## Configuración
 
@@ -296,17 +315,25 @@ El compositor es un único elemento por pestaña, así que dos generaciones en l
 Con una pestaña por hilo no chocan: cada una espera su propia respuesta de red, así que no hay duda sobre qué imagen
 es de quién.
 
-`ensureFlowTabs(n)` clona la pestaña del proyecto tantas veces como haga falta. Es una API de librería y no una
-herramienta MCP, porque cuántos hilos usar es una decisión del script que llama:
+La herramienta `generate_batch` hace esto sola: hasta 4 prompts distintos, una pestaña por prompt. Hay un detalle que
+vale la pena conocer: Chrome congela el `requestAnimationFrame` de las pestañas de fondo, así que React deja de
+responder a los clics en cualquier pestaña que no esté al frente. Por eso la fase de UI de cada trabajo (configurar +
+enviar) corre de a una pestaña, y solo la espera de la respuesta de Flow corre de verdad en paralelo. Como la espera
+es donde se va casi todo el tiempo, la ganancia sobrevive.
+
+Para scripts, la misma separación en dos fases está disponible como API de librería:
 
 ```js
 import { ensureFlowTabs } from "nano-banana-mcp/dist/browser.js";
-import { generateImages } from "nano-banana-mcp/dist/generate.js";
+import { startGeneration } from "nano-banana-mcp/dist/generate.js";
 
 const tabs = await ensureFlowTabs(4);
-await Promise.all(prompts.map((prompt, i) =>
-  generateImages({ prompt, aspect: "16:9", count: 4, page: tabs[i % tabs.length].page })
-));
+const started = [];
+for (const [i, prompt] of prompts.entries()) {
+  await tabs[i].page.bringToFront();                  // fase de UI: de a una
+  started.push(await startGeneration({ prompt, aspect: "16:9", count: 4, page: tabs[i].page }));
+}
+const results = await Promise.all(started.map((s) => s.harvest));  // la espera: todas a la vez
 ```
 
 Cuatro pestañas por cuatro variantes son dieciséis imágenes por ciclo. En la práctica, unas 40 imágenes en cinco

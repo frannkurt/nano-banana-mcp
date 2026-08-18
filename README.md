@@ -245,14 +245,33 @@ Connection state: session, account, open project, credit balance. Start here whe
 | `basename`                | string                          | derived from prompt | Base filename                                                  |
 | `format`                  | `jpg` `png` `webp`              | `jpg`              | Output format                                                  |
 | `fit`                     | `cover` `contain`               | `cover`            | `cover` crops to fill, `contain` pads the edges                |
+| `background`              | CSS color                       | `#ffffff`          | Padding color when `fit` is `contain`                          |
 
 Returns the saved paths, each media id, and a thumbnail of every result — so the model can see what came out and
 decide whether it's worth another try.
 
+### `generate_batch`
+
+Generates several **different** prompts at once — one browser tab per prompt, up to 4 jobs, each with its own optional
+`size`, `aspect` and `basename`. Shared `out_dir`, `format`, `fit` and `background`.
+
+Chrome freezes `requestAnimationFrame` in background tabs, so the UI can only be driven in the frontmost one. The tool
+splits each job in two phases: the UI phase (settings + submit, a few seconds) runs one tab at a time, bringing each to
+the front; the wait for Flow's answer — which is what actually takes time — runs in parallel for all of them. Two jobs
+land in roughly the time of one and a half.
+
+One failed job doesn't sink the rest: you get the saved files that worked and a per-job error for the ones that didn't.
+
+### `list_library`
+
+Lists the images in the project library, newest first: uploads (with the exact filename `reference_library_names`
+expects) and generated images (with their prompt and media id). Read via the project API — no UI is touched. Filter
+with `only`: `uploaded`, `generated` or `all`.
+
 ### `download_image`
 
-Fetches an existing image by media id, with optional cropping. Useful for recovering something generated earlier, or
-pulling several sizes out of the same original.
+Fetches an existing image by media id, with optional cropping (`size`, `fit`, `background`). Useful for recovering
+something generated earlier, or pulling several sizes out of the same original.
 
 ## Configuration
 
@@ -293,17 +312,24 @@ The composer is a single element per tab, so two generations in the same tab ove
 worker its own tab and they don't collide — each waits for its own network response, so there's no question which
 image belongs to whom.
 
-`ensureFlowTabs(n)` clones the project tab as many times as you need. It's a library-level API rather than an MCP tool,
-because the number of workers is a decision for the calling script:
+The `generate_batch` tool does this for you: up to 4 different prompts, one tab per prompt. There's one wrinkle worth
+knowing: Chrome freezes `requestAnimationFrame` in background tabs, so React stops responding to clicks in any tab
+that isn't frontmost. That's why each job's UI phase (settings + submit) runs one tab at a time, and only the wait for
+Flow's answer runs truly in parallel. The wait is where nearly all the time goes, so the speedup survives.
+
+For scripts, the same two-phase split is available as a library API:
 
 ```js
 import { ensureFlowTabs } from "nano-banana-mcp/dist/browser.js";
-import { generateImages } from "nano-banana-mcp/dist/generate.js";
+import { startGeneration } from "nano-banana-mcp/dist/generate.js";
 
 const tabs = await ensureFlowTabs(4);
-await Promise.all(prompts.map((prompt, i) =>
-  generateImages({ prompt, aspect: "16:9", count: 4, page: tabs[i % tabs.length].page })
-));
+const started = [];
+for (const [i, prompt] of prompts.entries()) {
+  await tabs[i].page.bringToFront();                  // UI phase: one at a time
+  started.push(await startGeneration({ prompt, aspect: "16:9", count: 4, page: tabs[i].page }));
+}
+const results = await Promise.all(started.map((s) => s.harvest));  // the wait: all at once
 ```
 
 Four tabs × four variants is sixteen images per cycle. In practice that's roughly 40 images in five minutes.
