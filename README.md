@@ -360,6 +360,14 @@ and a per-call confirmation. Nothing that spends credits will ever run because a
 Run `node scripts/doctor.mjs` first — it checks the whole chain in order and stops at the first thing that's wrong.
 The messages below are the English ones; with `FLOW_LANG=es` you'll see the Spanish equivalents.
 
+> **Known issue — Google is rolling out a new Flow interface.** If generation fails with **"Couldn't find the
+> generation settings control on the page"**, and your Flow settings open as a full page with a `tune` button
+> instead of a small popover, you have the new UI. It changes three things at once: the settings trigger, the
+> panel (which no longer quotes a cost, so the cost gate refuses to send), and the generation endpoint itself.
+> This is diagnosed in detail and being worked on in
+> [issue #1](https://github.com/frannkurt/nano-banana-mcp/issues/1) — there's nothing to fix on your end yet.
+> The rollout is gradual, so accounts still on the old interface are unaffected.
+
 **"Couldn't connect to Chrome at …"** — Chrome isn't running with `--remote-debugging-port=9222`, or you launched it
 without its own `--user-data-dir` and it attached to an existing instance. Close every window of that profile and
 relaunch with the command above.
@@ -369,9 +377,10 @@ relaunch with the command above.
 **"Couldn't find the prompt composer on the page"** — you're on the project list, not inside a project. The URL must
 contain `/project/`.
 
-**"I couldn't read what this generation would cost, so I'm not sending it"** — Flow's interface changed. The error
-includes the text it did read; open an issue pasting it and it gets fixed in one place. Note this is a *refusal*, not
-a crash: nothing was sent and nothing was spent.
+**"I couldn't read what this generation would cost, so I'm not sending it"** — Flow's interface changed. If the text
+the error quotes mentions "Confirm before generating", that's the new UI: see the known issue above. Otherwise the
+error includes the text it did read; open an issue pasting it and it gets fixed in one place. Either way this is a
+*refusal*, not a crash: nothing was sent and nothing was spent.
 
 **"Couldn't find X in the library picker"** — the reference file isn't in this project's library, or the name doesn't
 match. Check the exact filename as it was uploaded.

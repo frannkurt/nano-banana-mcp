@@ -367,6 +367,14 @@ defecto lo dejó pasar.
 Corré primero `node scripts/doctor.mjs`: revisa toda la cadena en orden y frena en lo primero que está mal. Los
 mensajes de abajo son los del español; con `FLOW_LANG=en` vas a ver los equivalentes en inglés.
 
+> **Problema conocido — Google está desplegando una interfaz nueva de Flow.** Si la generación falla con **"No
+> encontré el control de configuración de generación"**, y la configuración de Flow te abre como página completa
+> con un botón `tune` en vez de un popover chico, tenés la interfaz nueva. Cambia tres cosas a la vez: el
+> disparador de configuración, el panel (que ya no cotiza el costo, así que el portón se niega a enviar) y el
+> endpoint de generación. Está diagnosticado en detalle y en curso en el
+> [issue #1](https://github.com/frannkurt/nano-banana-mcp/issues/1) — todavía no hay nada que puedas arreglar de
+> tu lado. El despliegue es gradual, así que las cuentas que siguen con la interfaz vieja no están afectadas.
+
 **"No pude conectarme a Chrome"** — Chrome no está corriendo con `--remote-debugging-port=9222`, o lo abriste sin
 `--user-data-dir` propio y se pegó a una instancia que ya existía. Cerrá todas las ventanas de ese perfil y volvé a
 lanzarlo con el comando de arriba.
@@ -376,9 +384,10 @@ lanzarlo con el comando de arriba.
 **"No encontré el compositor"** — estás en la lista de proyectos, no adentro de uno. La URL tiene que incluir
 `/project/`.
 
-**"No pude leer cuánto va a costar"** — la interfaz de Flow cambió. El mensaje de error incluye el texto que sí se
-leyó; abrí un issue pegándolo y se arregla en un solo lugar. Ojo que esto es una *negativa*, no un cuelgue: no se
-envió nada y no se gastó nada.
+**"No pude leer cuánto va a costar"** — la interfaz de Flow cambió. Si el texto que cita el error menciona "Confirm
+before generating", es la interfaz nueva: mirá el problema conocido de arriba. Si no, el mensaje incluye el texto que
+sí se leyó; abrí un issue pegándolo y se arregla en un solo lugar. En cualquier caso esto es una *negativa*, no un
+cuelgue: no se envió nada y no se gastó nada.
 
 **"No encontré X en el selector de la biblioteca"** — el archivo de referencia no está en la biblioteca de este
 proyecto, o el nombre no coincide. Revisá el nombre exacto con el que se subió.
