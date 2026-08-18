@@ -13,7 +13,7 @@ import { slugify, writeImage } from "./image.js";
 import { ASPECT_KEYS, FlowError, nearestAspect, parseSize, type Aspect } from "./types.js";
 import { M } from "./i18n.js";
 
-const server = new McpServer({ name: "nano-banana-mcp", version: "0.1.0" });
+const server = new McpServer({ name: "nano-banana-mcp", version: "0.1.1" });
 
 type Content = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 
