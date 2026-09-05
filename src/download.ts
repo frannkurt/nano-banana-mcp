@@ -28,11 +28,13 @@ export async function fetchMedia(page: Page, mediaId: string, signedUrl?: string
   const referer = page.url();
 
   const attempts = [
-    // La URL firmada que vino en la respuesta de generación: directa y sin auth.
+    // La URL firmada que vino con la imagen del DOM (flow-content.google): directa
+    // y sin auth. Tras la migración a flow.google.com es la única fuente fiable.
     signedUrl ?? null,
-    // Resolución por id. Sirve siempre, también para medios viejos cuya URL
-    // firmada ya caducó.
-    `https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=${encodeURIComponent(mediaId)}`,
+    // Respaldo por id contra flow-content (por si el src ya no estuviera a mano).
+    // El endpoint tRPC viejo de labs.google/fx murió con la migración, así que no
+    // se intenta más.
+    /^[0-9a-f-]{36}$/i.test(mediaId) ? `https://flow-content.google/image/${mediaId}` : null,
   ].filter((u): u is string => Boolean(u));
 
   const errors: string[] = [];

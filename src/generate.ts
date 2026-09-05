@@ -6,42 +6,95 @@ import { attachReference, clearReferences, uploadImage } from "./reference.js";
 import { FlowError, type Aspect, type GeneratedImage } from "./types.js";
 import { M } from "./i18n.js";
 
-/** La llamada interna que dispara la página cuando se pide una imagen. */
-const GENERATE_ENDPOINT = "flowMedia:batchGenerateImages";
+/**
+ * DE DÓNDE SALE EL RESULTADO
+ *
+ * Hasta la migración a flow.google.com (frontend Angular) el resultado se leía de
+ * la respuesta de red `flowMedia:batchGenerateImages`, que traía id firmado y
+ * dimensiones en JSON limpio. Esa llamada ya no existe: ahora todo va por el RPC
+ * ofuscado `batchexecute`, impráctico de parsear.
+ *
+ * Así que cosechamos del DOM. Cada imagen generada aparece como un <img> cuyo src
+ * es `https://flow-content.google/image/<uuid>?Expires=…&Signature=…`, con el
+ * tamaño nativo en naturalWidth/Height y la URL ya firmada (se baja sin auth, y
+ * como comparte el tarro de cookies del navegador no la frena CORS). Tomamos una
+ * foto de los ids presentes ANTES de enviar y esperamos a que aparezcan los
+ * nuevos. Es estable entre idiomas e independiente del transporte interno.
+ */
+const MEDIA_RE = /flow-content\.google\/image\/([0-9a-f-]{36})/i;
+
+interface DomMedia {
+  id: string;
+  src: string;
+  width: number;
+  height: number;
+}
+
+/** Todos los medios `flow-content` presentes ahora, el de mayor resolución por id. */
+export async function snapshotMedia(page: Page): Promise<Map<string, DomMedia>> {
+  const list = await page.evaluate((reSrc) => {
+    const re = new RegExp(reSrc, "i");
+    const out: { id: string; src: string; width: number; height: number }[] = [];
+    for (const im of Array.from(document.images)) {
+      const src = im.currentSrc || im.src || "";
+      const m = re.exec(src);
+      if (!m) continue;
+      out.push({ id: m[1]!, src, width: im.naturalWidth || 0, height: im.naturalHeight || 0 });
+    }
+    return out;
+  }, MEDIA_RE.source);
+
+  const map = new Map<string, DomMedia>();
+  for (const it of list) {
+    const prev = map.get(it.id);
+    if (!prev || it.width * it.height > prev.width * prev.height) map.set(it.id, it);
+  }
+  return map;
+}
+
+/** Tras un rato con al menos una imagen nueva pero sin llegar a todas, se entrega. */
+const SILENCIO_MS = 15_000;
 
 /**
- * De dónde sale el resultado.
- *
- * En vez de pollear la biblioteca del proyecto esperando que aparezca algo nuevo
- * —frágil, lento y ambiguo si hay varias generaciones en vuelo— escuchamos la
- * respuesta de red de la propia página. Ahí viene ya resuelto el id del medio,
- * sus dimensiones reales y la URL firmada. Es determinístico y no depende de
- * cómo esté renderizada la interfaz ni en qué idioma.
+ * Espera a que aparezcan `esperadas` imágenes nuevas respecto de `antes`. Corta
+ * por cualquiera de tres vías: llegaron todas, pasó un rato con algunas sin
+ * novedad, o se agotó el tiempo. Nunca descarta lo ya visto.
  */
-export function parseResponse(payload: unknown): GeneratedImage[] {
-  const media = (payload as { media?: unknown[] })?.media;
-  if (!Array.isArray(media) || media.length === 0) return [];
+export async function collectFromDom(
+  page: Page,
+  antes: Set<string>,
+  esperadas: number,
+  aspect: string,
+  timeoutMs: number,
+): Promise<GeneratedImage[]> {
+  const t0 = Date.now();
+  let primeraNueva = 0;
+  const nuevas = new Map<string, DomMedia>();
 
-  const out: GeneratedImage[] = [];
-  for (const entry of media) {
-    const image = (entry as { image?: Record<string, unknown> })?.image;
-    const gen = image?.["generatedImage"] as Record<string, unknown> | undefined;
-    const dims = image?.["dimensions"] as { width?: number; height?: number } | undefined;
-
-    const mediaId = (gen?.["mediaId"] ?? (entry as { name?: string })?.name) as string | undefined;
-    if (!mediaId) continue;
-
-    out.push({
-      mediaId,
-      width: dims?.width ?? 0,
-      height: dims?.height ?? 0,
-      aspect: (gen?.["aspectRatio"] as string) ?? "unknown",
-      seed: typeof gen?.["seed"] === "number" ? (gen["seed"] as number) : null,
-      signedUrl: (gen?.["fifeUrl"] as string) ?? null,
-      effectivePrompt: (gen?.["prompt"] as string) ?? null,
-    });
+  while (Date.now() - t0 < timeoutMs) {
+    const actual = await snapshotMedia(page);
+    for (const [id, m] of actual) {
+      // Sólo ids nuevos y con la imagen ya cargada (naturalWidth real, no el
+      // placeholder de 0 ancho).
+      if (!antes.has(id) && m.width > 200 && !nuevas.has(id)) {
+        nuevas.set(id, m);
+        if (primeraNueva === 0) primeraNueva = Date.now();
+      }
+    }
+    if (nuevas.size >= esperadas) break;
+    if (primeraNueva && Date.now() - primeraNueva > SILENCIO_MS) break;
+    await page.waitForTimeout(1500);
   }
-  return out;
+
+  return [...nuevas.values()].slice(0, esperadas).map((m) => ({
+    mediaId: m.id,
+    width: m.width,
+    height: m.height,
+    aspect,
+    seed: null,
+    signedUrl: m.src,
+    effectivePrompt: null,
+  }));
 }
 
 export interface GenerateOptions {
@@ -56,8 +109,8 @@ export interface GenerateOptions {
    *
    * Pasarla explícitamente es lo que permite generar en paralelo: el compositor
    * es un único elemento por pestaña, así que dos generaciones en la misma se
-   * pisan escribiendo el prompt. Con una pestaña por hilo cada una espera su
-   * propia respuesta de red y no hay ambigüedad sobre qué imagen es de quién.
+   * pisan escribiendo el prompt. Con una pestaña por hilo cada una vigila su
+   * propio DOM y no hay ambigüedad sobre qué imagen es de quién.
    */
   page?: Page;
   /**
@@ -75,73 +128,6 @@ export interface GenerateOptions {
    * deja filas duplicadas y hace más lenta cada iteración.
    */
   referenceLibraryNames?: string[];
-}
-
-/** Si tras la última respuesta pasa este rato sin novedad, se entrega lo que haya. */
-const SILENCIO_MS = 20_000;
-
-/**
- * Cosecha las imágenes de una generación.
- *
- * Con `count` mayor que uno Flow NO devuelve un arreglo con todas: manda una
- * respuesta HTTP separada por cada imagen, escalonadas por un par de segundos.
- * Esperar "la próxima respuesta" y quedarse con esa —que es lo que hacía este
- * código— descartaba silenciosamente las otras tres, y desde afuera parecía un
- * límite de la cuenta.
- *
- * Por eso acá se escucha el flujo completo y se corta por cualquiera de tres
- * vías: llegaron todas las esperadas, pasó un rato sin novedad, o se agotó el
- * tiempo. Nunca se descarta lo ya recibido.
- */
-function collectGenerated(page: Page, esperadas: number, timeoutMs: number): Promise<GeneratedImage[]> {
-  return new Promise<GeneratedImage[]>((resolve, reject) => {
-    const encontradas: GeneratedImage[] = [];
-    let cerrado = false;
-    let silencio: ReturnType<typeof setTimeout> | null = null;
-
-    const cerrar = (accion: () => void) => {
-      if (cerrado) return;
-      cerrado = true;
-      page.off("response", onResponse);
-      clearTimeout(duro);
-      if (silencio) clearTimeout(silencio);
-      accion();
-    };
-
-    const onResponse = async (res: import("playwright-core").Response) => {
-      if (cerrado) return;
-      if (!res.url().includes(GENERATE_ENDPOINT) || res.request().method() !== "POST") return;
-
-      if (!res.ok()) {
-        const cuerpo = await res.text().catch(() => "");
-        return cerrar(() =>
-          reject(
-            new FlowError(M.generateFailed(res.status()), cuerpo.slice(0, 300) || M.emptyBody()),
-          ),
-        );
-      }
-
-      const nuevas = parseResponse(await res.json().catch(() => null));
-      if (nuevas.length === 0) return;
-      encontradas.push(...nuevas);
-
-      if (encontradas.length >= esperadas) return cerrar(() => resolve(encontradas));
-      if (silencio) clearTimeout(silencio);
-      silencio = setTimeout(() => cerrar(() => resolve(encontradas)), SILENCIO_MS);
-    };
-
-    const duro = setTimeout(() => {
-      cerrar(() => {
-        if (encontradas.length > 0) resolve(encontradas);
-        else
-          reject(
-            new FlowError(M.noAnswer(Math.round(timeoutMs / 1000)), M.noAnswerHint()),
-          );
-      });
-    }, timeoutMs);
-
-    page.on("response", onResponse);
-  });
 }
 
 export interface GenerateResult {
@@ -163,25 +149,27 @@ export interface StartedGeneration {
  * Deja una generación EN VUELO y devuelve sin esperarla.
  *
  * La separación en dos fases existe por cómo trata Chrome a las pestañas de
- * fondo: les congela requestAnimationFrame, así que React no procesa los clics
- * y la interfaz no responde. Manipular la UI exige la pestaña en primer plano.
- * Esperar la respuesta de red, en cambio, funciona igual con la pestaña tapada.
+ * fondo: les congela requestAnimationFrame, así que la interfaz no responde.
+ * Manipular la UI —y tomar la foto de los medios previos— exige la pestaña en
+ * primer plano; la espera del resultado, en cambio, tolera la pestaña tapada.
  *
  * Entonces, para varias generaciones a la vez: la fase de UI —unos segundos por
- * pestaña— se hace de a una con `bringToFront`, y la espera —que es lo que de
+ * pestaña— se hace de a una con `bringToFront`, y la cosecha —que es lo que de
  * verdad tarda— corre en paralelo para todas.
  */
 export async function startGeneration(opts: GenerateOptions): Promise<StartedGeneration> {
   const maxCost = opts.maxCost ?? config.maxCost;
   const page = opts.page ?? (await getFlowTab()).page;
 
-  // Una referencia olvidada de un turno anterior cambiaría la imagen sin que
-  // nada lo indique, y el resultado se le atribuiría al prompt. Se limpia
-  // siempre, se vayan a adjuntar referencias nuevas o no.
-  await clearReferences(page);
+  // Una referencia olvidada de un turno anterior cambiaría la imagen sin que nada
+  // lo indique. Se limpia siempre. Si la UI cambió y esto fallara, no debe tumbar
+  // una generación sin referencias: se ignora.
+  try {
+    await clearReferences(page);
+  } catch {
+    /* sin referencias que limpiar, o la UI cambió: no es fatal */
+  }
 
-  // Subir el mismo archivo dos veces deja filas duplicadas en la biblioteca y no
-  // aporta nada, así que lo ya subido se reusa por nombre.
   for (const nombre of opts.referenceLibraryNames ?? []) {
     await attachReference(page, nombre);
   }
@@ -194,6 +182,7 @@ export async function startGeneration(opts: GenerateOptions): Promise<StartedGen
 
   // El portón. Se cierra ANTES de enviar, que es el único momento en que negarse
   // todavía es gratis. Si el número no se pudo leer, no adivinamos: paramos.
+  // (En modo imagen applySettings ya devuelve 0, que es lo real.)
   if (quote.cost === null) {
     await closeSettings(page);
     throw new FlowError(M.costUnreadable(), M.costUnreadableHint(quote.raw.slice(0, 200)));
@@ -208,10 +197,12 @@ export async function startGeneration(opts: GenerateOptions): Promise<StartedGen
 
   await closeSettings(page);
 
-  // Nos suscribimos ANTES de enviar: si la respuesta llegara rapidísimo, un
-  // listener tardío se la perdería y quedaríamos esperando para siempre.
+  // Foto de los medios presentes ANTES de enviar: lo nuevo es lo que sale de acá.
+  // Se toma con la pestaña todavía en primer plano (fin de la fase de UI).
+  const antes = new Set((await snapshotMedia(page)).keys());
+
   const timeout = opts.timeoutMs ?? config.generateTimeoutMs;
-  const cosecha = collectGenerated(page, opts.count, timeout).then((images) => {
+  const cosecha = collectFromDom(page, antes, opts.count, opts.aspect, timeout).then((images) => {
     if (images.length === 0) {
       throw new FlowError(M.noImages(), M.noImagesHint());
     }

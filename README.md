@@ -38,7 +38,7 @@ a few cents each, which quietly becomes real money once a model is iterating on 
 attempts out of ten.
 
 This one doesn't, because it isn't calling a paid API at all. It drives **Nano Banana**, the image model inside
-[Google Flow](https://labs.google/fx/tools/flow), through the web app you already have access to. Flow charges
+[Google Flow](https://flow.google.com), through the web app you already have access to. Flow charges
 credits for video. **Images cost zero.**
 
 |                       | API-based image MCPs           | nano-banana-mcp                     |
@@ -159,30 +159,39 @@ npm run build
 
 ### 1. Launch Chrome with remote debugging
 
-Use a profile separate from your everyday one.
+**Easiest — use the bundled launcher** (persistent, dedicated profile so you sign in only once):
+
+```bash
+npm run chrome
+```
+
+It opens `flow.google.com` in a dedicated profile (`<userData>/nano-banana-flow-profile`) with the debug port on,
+without touching your everyday Chrome. Sign in once; the session persists for next time.
+
+Or do it by hand, with a profile separate from your everyday one.
 
 **Windows**
 
 ```bash
-"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="%USERPROFILE%\.nano-banana-mcp\chrome" https://labs.google/fx/tools/flow
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="%USERPROFILE%\.nano-banana-mcp\chrome" https://flow.google.com
 ```
 
 **macOS**
 
 ```bash
-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="$HOME/.nano-banana-mcp/chrome" https://labs.google/fx/tools/flow
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="$HOME/.nano-banana-mcp/chrome" https://flow.google.com
 ```
 
 **Linux**
 
 ```bash
-google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.nano-banana-mcp/chrome" https://labs.google/fx/tools/flow
+google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.nano-banana-mcp/chrome" https://flow.google.com
 ```
 
 ### 2. Sign in and open a project
 
 In that window, sign in with your Google account and open a Flow project. The URL must end up at
-`labs.google/fx/tools/flow/project/<id>`.
+`flow.google.com/project/<id>`.
 
 Without an open project there is no composer, and without a composer nothing can be generated.
 
@@ -372,7 +381,7 @@ The messages below are the English ones; with `FLOW_LANG=es` you'll see the Span
 without its own `--user-data-dir` and it attached to an existing instance. Close every window of that profile and
 relaunch with the command above.
 
-**"No labs.google tab is open in that Chrome"** — open Flow in that Chrome window.
+**"No Flow (flow.google.com) tab is open in that Chrome"** — open Flow in that Chrome window.
 
 **"Couldn't find the prompt composer on the page"** — you're on the project list, not inside a project. The URL must
 contain `/project/`.

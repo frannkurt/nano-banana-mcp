@@ -16,6 +16,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
+    "chrome": "node scripts/launch-chrome.mjs",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "test": "node --test test/*.test.js",

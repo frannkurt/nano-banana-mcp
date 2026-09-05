@@ -50,8 +50,8 @@ export const M = {
     }),
   chromeUnreachableHint: () =>
     p({
-      en: "Launch Chrome with --remote-debugging-port=9222 and its own --user-data-dir, then open labs.google/fx/tools/flow. See the README.",
-      es: "Abrí Chrome con --remote-debugging-port=9222 y un --user-data-dir propio, después entrá a labs.google/fx/tools/flow. Ver el README.",
+      en: "Launch Chrome with --remote-debugging-port=9222 and its own --user-data-dir, then open flow.google.com. See the README.",
+      es: "Abrí Chrome con --remote-debugging-port=9222 y un --user-data-dir propio, después entrá a flow.google.com. Ver el README.",
     }),
   noContext: () =>
     p({
@@ -60,13 +60,13 @@ export const M = {
     }),
   noFlowTab: () =>
     p({
-      en: "No labs.google tab is open in that Chrome.",
-      es: "No hay ninguna pestaña de labs.google abierta en ese Chrome.",
+      en: "No Flow (flow.google.com) tab is open in that Chrome.",
+      es: "No hay ninguna pestaña de Flow (flow.google.com) abierta en ese Chrome.",
     }),
   noFlowTabHint: () =>
     p({
-      en: "Go to labs.google/fx/tools/flow, sign in and open a project.",
-      es: "Entrá a labs.google/fx/tools/flow, iniciá sesión y abrí un proyecto.",
+      en: "Go to flow.google.com, sign in and open a project.",
+      es: "Entrá a flow.google.com, iniciá sesión y abrí un proyecto.",
     }),
   noProjectTab: () =>
     p({
@@ -75,8 +75,8 @@ export const M = {
     }),
   noProjectTabHint: () =>
     p({
-      en: "Open a project at labs.google/fx/tools/flow before generating.",
-      es: "Abrí un proyecto en labs.google/fx/tools/flow antes de generar.",
+      en: "Open a project at flow.google.com before generating.",
+      es: "Abrí un proyecto en flow.google.com antes de generar.",
     }),
 
   // ---- ui.ts ----
@@ -87,8 +87,8 @@ export const M = {
     }),
   noSettingsControlHint: () =>
     p({
-      en: "Check that a Flow project is open (labs.google/fx/tools/flow/project/<id>) and that the window isn't covered.",
-      es: "Confirmá que hay un proyecto de Flow abierto (labs.google/fx/tools/flow/project/<id>) y que la ventana no está tapada.",
+      en: "Check that a Flow project is open (flow.google.com/project/<id>) and that the window isn't covered.",
+      es: "Confirmá que hay un proyecto de Flow abierto (flow.google.com/project/<id>) y que la ventana no está tapada.",
     }),
   settingsWontOpen: () =>
     p({
@@ -115,8 +115,8 @@ export const M = {
     }),
   noComposerHint: () =>
     p({
-      en: "Open a Flow project (labs.google/fx/tools/flow/project/<id>) before generating.",
-      es: "Abrí un proyecto de Flow (labs.google/fx/tools/flow/project/<id>) antes de generar.",
+      en: "Open a Flow project (flow.google.com/project/<id>) before generating.",
+      es: "Abrí un proyecto de Flow (flow.google.com/project/<id>) antes de generar.",
     }),
 
   // ---- reference.ts ----

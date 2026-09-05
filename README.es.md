@@ -38,7 +38,7 @@ Todos los demás MCP de imágenes te cobran. Te registrás por una API key, enga
 nueve intentos de cada diez.
 
 Este no, porque no está llamando a ninguna API paga. Maneja **Nano Banana**, el modelo de imagen que vive adentro de
-[Google Flow](https://labs.google/fx/tools/flow), a través de la aplicación web a la que ya tenés acceso. Flow cobra
+[Google Flow](https://flow.google.com), a través de la aplicación web a la que ya tenés acceso. Flow cobra
 puntos por el vídeo. **Las imágenes cuestan cero.**
 
 |                        | MCP de imágenes por API           | nano-banana-mcp                       |
@@ -160,30 +160,39 @@ npm run build
 
 ### 1. Abrí Chrome con depuración remota
 
-Tiene que ser un perfil aparte del que usás todos los días.
+**Lo más fácil — usá el launcher incluido** (perfil dedicado y persistente: te logueás una sola vez):
+
+```bash
+npm run chrome
+```
+
+Abre `flow.google.com` en un perfil dedicado (`<userData>/nano-banana-flow-profile`) con el puerto de depuración
+prendido, sin tocar el Chrome que usás para todo lo demás. Iniciás sesión una vez y queda logueado para la próxima.
+
+O hacelo a mano, con un perfil aparte del que usás todos los días.
 
 **Windows**
 
 ```bash
-"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="%USERPROFILE%\.nano-banana-mcp\chrome" https://labs.google/fx/tools/flow
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="%USERPROFILE%\.nano-banana-mcp\chrome" https://flow.google.com
 ```
 
 **macOS**
 
 ```bash
-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="$HOME/.nano-banana-mcp/chrome" https://labs.google/fx/tools/flow
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="$HOME/.nano-banana-mcp/chrome" https://flow.google.com
 ```
 
 **Linux**
 
 ```bash
-google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.nano-banana-mcp/chrome" https://labs.google/fx/tools/flow
+google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.nano-banana-mcp/chrome" https://flow.google.com
 ```
 
 ### 2. Iniciá sesión y abrí un proyecto
 
 En esa ventana, entrá con tu cuenta de Google y abrí un proyecto de Flow. La URL tiene que quedar en
-`labs.google/fx/tools/flow/project/<id>`.
+`flow.google.com/project/<id>`.
 
 Sin un proyecto abierto no existe el compositor, y sin compositor no se puede generar.
 
@@ -379,7 +388,7 @@ mensajes de abajo son los del español; con `FLOW_LANG=en` vas a ver los equival
 `--user-data-dir` propio y se pegó a una instancia que ya existía. Cerrá todas las ventanas de ese perfil y volvé a
 lanzarlo con el comando de arriba.
 
-**"No hay ninguna pestaña de labs.google abierta"** — abrí Flow en esa ventana de Chrome.
+**"No hay ninguna pestaña de Flow (flow.google.com) abierta"** — abrí Flow en esa ventana de Chrome.
 
 **"No encontré el compositor"** — estás en la lista de proyectos, no adentro de uno. La URL tiene que incluir
 `/project/`.
