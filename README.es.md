@@ -256,6 +256,7 @@ Estado de la conexión: sesión, cuenta, proyecto abierto, saldo de puntos. Empe
 | `format`                  | `jpg` `png` `webp`              | `jpg`               | Formato de salida                                                  |
 | `fit`                     | `cover` `contain`               | `cover`             | `cover` recorta para llenar, `contain` rellena los bordes          |
 | `background`              | color CSS                       | `#ffffff`           | Color de relleno cuando `fit` es `contain`                         |
+| `upscale`                 | `2k` `4k`                       | —                   | Pedirle al escalador de Flow detalle real más allá del nativo (ver abajo) |
 
 Devuelve las rutas guardadas, el id de cada medio y una miniatura de cada resultado, para que el modelo pueda ver qué
 salió y decidir si vale la pena reintentar.
@@ -281,7 +282,30 @@ proyecto, sin tocar la interfaz. Se filtra con `only`: `uploaded`, `generated` o
 ### `download_image`
 
 Baja una imagen ya existente por su id de medio, con recorte opcional (`size`, `fit`, `background`). Sirve para
-recuperar algo generado antes o para sacar varios tamaños del mismo original.
+recuperar algo generado antes o para sacar varios tamaños del mismo original. También acepta `upscale`.
+
+### `upscale_image`
+
+Escala una imagen que ya existe en el proyecto abierto, por su id de medio, con el escalador propio de Flow, y la
+guarda (`out_file`, con `size`/`fit`/`background` opcionales). `target` es `2k` (por defecto) o `4k`.
+
+## Escalado
+
+Nano Banana entrega 1024x1024 en cuadrado y 1376x768 en apaisado, y ahí termina el detalle real: un `size` más
+grande solo interpola. Flow trae su propio escalador, que reconstruye la imagen a 2K o 4K, y es lo único que agrega
+detalle. Pasá `upscale: "2k"` a `generate_image` o `download_image`, o llamá a `upscale_image` con un id de medio.
+
+| Nativo     | 2K        |
+| ---------- | --------- |
+| 1376x768   | 2752x1536 |
+| 1200x896   | 2400x1792 |
+| 1024x1024  | 2048x2048 |
+
+El 2K es gratis y tarda unos 10 s por imagen. El 4K solo se ofrece en planes pagos; en una cuenta gratuita la
+entrada del menú aparece deshabilitada y la herramienta lo dice en vez de intentarlo. Como la generación, esto pasa
+por la interfaz (el RPC de escalado va firmado con un token de reCAPTCHA de un solo uso): la herramienta hace clic
+derecho en la baldosa, elige Descargar → 2K y toma el resultado de la descarga que dispara la propia página. Por eso
+la imagen tiene que pertenecer al proyecto abierto en la pestaña de Flow, y los escalados van de a uno.
 
 ## Configuración
 

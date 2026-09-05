@@ -227,6 +227,64 @@ export const M = {
   downloadFailed: (mediaId: string) =>
     p({ en: `Couldn't download media ${mediaId}.`, es: `No pude descargar el medio ${mediaId}.` }),
 
+  // ---- upscale.ts ----
+  tileNotFound: (mediaId: string) =>
+    p({
+      en: `Couldn't find the tile for media ${mediaId} on the project board.`,
+      es: `No encontré la baldosa del medio ${mediaId} en el tablero del proyecto.`,
+    }),
+  tileNotFoundHint: () =>
+    p({
+      en: "The image must belong to the project open in the Flow tab. Open that project (or generate the image again) and retry.",
+      es: "La imagen tiene que ser del proyecto abierto en la pestaña de Flow. Abrí ese proyecto (o volvé a generarla) y reintentá.",
+    }),
+  noDownloadEntry: () =>
+    p({
+      en: "The tile's context menu has no download entry.",
+      es: "El menú contextual de la baldosa no tiene la entrada de descarga.",
+    }),
+  noUpscaleOption: (label: string) =>
+    p({
+      en: `The download submenu offers no "${label}" option.`,
+      es: `El submenú de descarga no ofrece la opción "${label}".`,
+    }),
+  upscaleLocked: (label: string) =>
+    p({
+      en: `The "${label}" option is disabled for this account.`,
+      es: `La opción "${label}" está deshabilitada para esta cuenta.`,
+    }),
+  upscaleLockedHint: (text: string) =>
+    p({
+      en: `Flow shows it as: "${text}". It usually needs a paid plan; 2K is free.`,
+      es: `Flow la muestra como: "${text}". Suele exigir plan pago; el 2K es gratis.`,
+    }),
+  visibleMenu: (items: string) => p({ en: `Visible menu: ${items}`, es: `Menú visible: ${items}` }),
+  upscaleTimeout: (s: number) =>
+    p({
+      en: `Flow didn't deliver the upscaled image within ${s} s.`,
+      es: `Flow no entregó la imagen escalada en ${s} s.`,
+    }),
+  upscaleNotImage: (name: string, bytes: number) =>
+    p({
+      en: `The download "${name}" (${bytes} bytes) isn't an image.`,
+      es: `La descarga "${name}" (${bytes} bytes) no es una imagen.`,
+    }),
+  resultUpscaled: (label: string, w: number, h: number) =>
+    p({
+      en: `Upscaled to ${label} by Flow: ${w}x${h} (real detail, not interpolation).`,
+      es: `Escalada a ${label} por Flow: ${w}x${h} (detalle real, no interpolación).`,
+    }),
+  argUpscale: () =>
+    p({
+      en: 'Ask Flow to upscale the result: "2k" (free, about 2x the native size, ~10 s per image) or "4k" (paid plans). It is the only way to get real detail beyond native; a larger size alone just interpolates.',
+      es: 'Pedirle a Flow que escale el resultado: "2k" (gratis, unas 2x el nativo, ~10 s por imagen) o "4k" (planes pagos). Es la única forma de tener detalle real más allá del nativo; un size grande solo interpola.',
+    }),
+  toolUpscale: () =>
+    p({
+      en: "Upscale an image that already exists in the open Flow project, by its media id, and save it to disk. 2K is free.",
+      es: "Escala una imagen que ya existe en el proyecto de Flow abierto, por su id de medio, y la guarda en disco. El 2K es gratis.",
+    }),
+
   // ---- types.ts ----
   badSize: (size: string) =>
     p({

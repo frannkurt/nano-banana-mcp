@@ -14,6 +14,11 @@ const SIGNATURES: { ext: string; test: (b: Buffer) => boolean }[] = [
 
 const MIN_BYTES = 2_000;
 
+/** Extensión según la firma de los bytes, o null si no es una imagen conocida. */
+export function sniffImage(bytes: Buffer): string | null {
+  return SIGNATURES.find((s) => s.test(bytes))?.ext ?? null;
+}
+
 /**
  * Trae los bytes de un medio.
  *

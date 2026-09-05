@@ -10,11 +10,12 @@ import { ensureFlowTabs, getFlowTab, readStatus } from "./browser.js";
 import { generateImages, startGeneration } from "./generate.js";
 import { listLibrary } from "./library.js";
 import { fetchMedia } from "./download.js";
+import { UPSCALE_TARGETS, upscaleImage, type UpscaleTarget } from "./upscale.js";
 import { slugify, writeImage } from "./image.js";
 import { ASPECT_KEYS, FlowError, nearestAspect, parseSize, type Aspect } from "./types.js";
 import { M } from "./i18n.js";
 
-const server = new McpServer({ name: "nano-banana-mcp", version: "0.2.0" });
+const server = new McpServer({ name: "nano-banana-mcp", version: "0.3.0" });
 
 type Content = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 
@@ -101,6 +102,10 @@ server.tool(
       .default("cover")
       .describe(M.argFit()),
     background: z.string().optional().describe(M.argBackground()),
+    upscale: z
+      .enum(Object.keys(UPSCALE_TARGETS) as [UpscaleTarget, ...UpscaleTarget[]])
+      .optional()
+      .describe(M.argUpscale()),
   },
   async (args) => {
     try {
@@ -119,24 +124,36 @@ server.tool(
       const dir = path.resolve(args.out_dir ?? config.outputDir);
       const base = args.basename ? slugify(args.basename) : slugify(args.prompt);
 
-      // Las descargas no comparten estado entre sí: en paralelo, que con count=4
-      // la espera es la de la más lenta y no la suma de las cuatro.
-      const results = await Promise.all(
-        images.map(async (img, i) => {
-          const bytes = await fetchMedia(page, img.mediaId, img.signedUrl);
-          const suffix = images.length > 1 ? `-${i + 1}` : "";
-          const out = path.join(dir, `${base}${suffix}.${args.format}`);
-          const res = await writeImage(
-            bytes,
-            out,
-            target ? { ...target, fit: args.fit, background: args.background } : undefined,
-          );
-          return {
-            line: `${res.file}  (${res.width}x${res.height}, ${Math.round(res.bytes / 1024)} KB, id ${img.mediaId})`,
-            thumb: await preview(bytes),
-          };
-        }),
-      );
+      // Sin escalado, las descargas no comparten estado entre sí: en paralelo,
+      // que con count=4 la espera es la de la más lenta y no la suma de las
+      // cuatro. Con escalado no: cada una manipula el mismo tablero (menú
+      // contextual, descarga), así que van de a una.
+      const traer = async (img: (typeof images)[number]) =>
+        args.upscale ? upscaleImage(page, img.mediaId, { target: args.upscale }) : fetchMedia(page, img.mediaId, img.signedUrl);
+
+      const guardar = async (img: (typeof images)[number], i: number) => {
+        const bytes = await traer(img);
+        const suffix = images.length > 1 ? `-${i + 1}` : "";
+        const out = path.join(dir, `${base}${suffix}.${args.format}`);
+        const res = await writeImage(
+          bytes,
+          out,
+          target ? { ...target, fit: args.fit, background: args.background } : undefined,
+        );
+        return {
+          line: `${res.file}  (${res.width}x${res.height}, ${Math.round(res.bytes / 1024)} KB, id ${img.mediaId})`,
+          thumb: await preview(bytes),
+          width: res.width,
+          height: res.height,
+        };
+      };
+
+      const results: Awaited<ReturnType<typeof guardar>>[] = [];
+      if (args.upscale) {
+        for (const [i, img] of images.entries()) results.push(await guardar(img, i));
+      } else {
+        results.push(...(await Promise.all(images.map(guardar))));
+      }
       const content: Content[] = results.map((r) => r.thumb);
       const saved = results.map((r) => r.line);
 
@@ -150,9 +167,12 @@ server.tool(
 
       // Pedir más grande que el nativo no genera más detalle: lo interpola. El
       // archivo sale del tamaño pedido igual, así que sin avisar esto se lee como
-      // si el modelo hubiera generado a esa resolución.
+      // si el modelo hubiera generado a esa resolución. Con escalado el "nativo"
+      // que cuenta es el que entregó Flow ya escalado.
       const nativo = images[0];
-      if (target && nativo?.width && (target.width > nativo.width || target.height > nativo.height)) {
+      if (args.upscale && results[0]) {
+        header.push("", M.resultUpscaled(UPSCALE_TARGETS[args.upscale], results[0].width, results[0].height));
+      } else if (target && nativo?.width && (target.width > nativo.width || target.height > nativo.height)) {
         header.push("", M.upscaleWarning(target.width, target.height, nativo.width, nativo.height));
       }
 
@@ -178,11 +198,53 @@ server.tool(
     size: z.string().optional().describe(M.argSizePlain()),
     fit: z.enum(["cover", "contain"]).default("cover"),
     background: z.string().optional().describe(M.argBackground()),
+    upscale: z
+      .enum(Object.keys(UPSCALE_TARGETS) as [UpscaleTarget, ...UpscaleTarget[]])
+      .optional()
+      .describe(M.argUpscale()),
   },
   async (args) => {
     try {
       const { page } = await getFlowTab();
-      const bytes = await fetchMedia(page, args.media_id);
+      const bytes = args.upscale
+        ? await upscaleImage(page, args.media_id, { target: args.upscale })
+        : await fetchMedia(page, args.media_id);
+      const target = args.size ? parseSize(args.size) : null;
+      const out = path.resolve(args.out_file);
+      const res = await writeImage(
+        bytes,
+        out,
+        target ? { ...target, fit: args.fit, background: args.background } : undefined,
+      );
+      const lines = [M.savedAs(res.file, res.width, res.height, Math.round(res.bytes / 1024))];
+      if (args.upscale) lines.push(M.resultUpscaled(UPSCALE_TARGETS[args.upscale], res.width, res.height));
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n") }, await preview(bytes)],
+      };
+    } catch (err) {
+      return fail(err);
+    }
+  },
+);
+
+server.tool(
+  "upscale_image",
+  M.toolUpscale(),
+  {
+    media_id: z.string().describe(M.argMediaId()),
+    out_file: z.string().describe(M.argOutFile()),
+    target: z
+      .enum(Object.keys(UPSCALE_TARGETS) as [UpscaleTarget, ...UpscaleTarget[]])
+      .default("2k")
+      .describe(M.argUpscale()),
+    size: z.string().optional().describe(M.argSizePlain()),
+    fit: z.enum(["cover", "contain"]).default("cover"),
+    background: z.string().optional().describe(M.argBackground()),
+  },
+  async (args) => {
+    try {
+      const { page } = await getFlowTab();
+      const bytes = await upscaleImage(page, args.media_id, { target: args.target });
       const target = args.size ? parseSize(args.size) : null;
       const out = path.resolve(args.out_file);
       const res = await writeImage(
@@ -194,7 +256,10 @@ server.tool(
         content: [
           {
             type: "text" as const,
-            text: M.savedAs(res.file, res.width, res.height, Math.round(res.bytes / 1024)),
+            text: [
+              M.savedAs(res.file, res.width, res.height, Math.round(res.bytes / 1024)),
+              M.resultUpscaled(UPSCALE_TARGETS[args.target], res.width, res.height),
+            ].join("\n"),
           },
           await preview(bytes),
         ],

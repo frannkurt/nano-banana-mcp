@@ -3,6 +3,25 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [0.3.0] — 2026-09-05
+
+### Added
+
+- **Upscaling with Flow's own upscaler.** New `upscale` parameter (`2k` or `4k`) on `generate_image` and
+  `download_image`, and a new `upscale_image` tool for media that already exists in the open project. 2K is free,
+  takes about 10 s per image and doubles the native size (1376x768 → 2752x1536, 1024² → 2048²); it is the only way to
+  get real detail beyond native, since a larger `size` alone just interpolates. 4K is detected as disabled on free
+  accounts and reported instead of attempted. Verified live on flow.google.com.
+
+### Changed
+
+- The upscaler works against the new Angular frontend: the tile is located by its `data-media-id` attribute (the
+  thumbnail `src` is now a proxy URL without the id), and the result is taken from the download the page itself
+  starts after Download → 2K, via Playwright's `download` event, instead of the old `flow/upsampleImage` response
+  that the migration removed.
+- `sniffImage()` exported from `download.ts` so any module can check that a buffer is really an image before
+  saving it.
+
 ## [0.2.0] — 2026-08-18
 
 ### Added

@@ -255,6 +255,7 @@ Connection state: session, account, open project, credit balance. Start here whe
 | `format`                  | `jpg` `png` `webp`              | `jpg`              | Output format                                                  |
 | `fit`                     | `cover` `contain`               | `cover`            | `cover` crops to fill, `contain` pads the edges                |
 | `background`              | CSS color                       | `#ffffff`          | Padding color when `fit` is `contain`                          |
+| `upscale`                 | `2k` `4k`                       | —                  | Ask Flow's own upscaler for real detail beyond native (see below) |
 
 Returns the saved paths, each media id, and a thumbnail of every result — so the model can see what came out and
 decide whether it's worth another try.
@@ -280,7 +281,31 @@ with `only`: `uploaded`, `generated` or `all`.
 ### `download_image`
 
 Fetches an existing image by media id, with optional cropping (`size`, `fit`, `background`). Useful for recovering
-something generated earlier, or pulling several sizes out of the same original.
+something generated earlier, or pulling several sizes out of the same original. Accepts `upscale` too.
+
+### `upscale_image`
+
+Upscales an image that already exists in the open project, by media id, with Flow's own upscaler, and saves it
+(`out_file`, optional `size`/`fit`/`background`). `target` is `2k` (default) or `4k`.
+
+## Upscaling
+
+Nano Banana delivers 1024x1024 in square and 1376x768 in landscape, and that is where real detail ends: a larger
+`size` on its own only interpolates. Flow ships its own upscaler that reconstructs the image at 2K or 4K, and it is
+the only thing that adds detail. Pass `upscale: "2k"` to `generate_image` or `download_image`, or call
+`upscale_image` on a media id.
+
+| Native     | 2K        |
+| ---------- | --------- |
+| 1376x768   | 2752x1536 |
+| 1200x896   | 2400x1792 |
+| 1024x1024  | 2048x2048 |
+
+2K is free and takes about 10 s per image. 4K is offered only on paid plans; on a free account the menu entry is
+disabled and the tool says so instead of trying. Like generation, this goes through the interface (the upscale RPC
+is signed with a single-use reCAPTCHA token): the tool right-clicks the tile, picks Download → 2K and takes the
+result from the download the page itself starts. That means the image must belong to the project open in the Flow
+tab, and upscales run one at a time.
 
 ## Configuration
 
