@@ -3,8 +3,8 @@ import { config } from "./config.js";
 import { FlowError } from "./types.js";
 import { M } from "./i18n.js";
 
-const FLOW_HOST = "labs.google";
-const PROJECT_RE = /\/tools\/flow\/project\/([0-9a-f-]{36})/i;
+const FLOW_HOST_RE = /labs\.google|flow\.google\.com/;
+const PROJECT_RE = /(?:\/tools\/flow)?\/project\/([0-9a-f-]{36})/i;
 
 let browser: Browser | null = null;
 
@@ -38,7 +38,7 @@ export interface FlowTab {
 /** Ubica la pestaña de Flow. Si hay un proyecto abierto, la prefiere. */
 export async function getFlowTab(): Promise<FlowTab> {
   const context = await attach();
-  const pages = context.pages().filter((p) => p.url().includes(FLOW_HOST));
+  const pages = context.pages().filter((p) => FLOW_HOST_RE.test(p.url()));
 
   if (pages.length === 0) {
     throw new FlowError(M.noFlowTab(), M.noFlowTabHint());
@@ -59,7 +59,7 @@ export async function listFlowTabs(): Promise<FlowTab[]> {
   const context = await attach();
   return context
     .pages()
-    .filter((p) => p.url().includes(FLOW_HOST) && PROJECT_RE.test(p.url()))
+    .filter((p) => FLOW_HOST_RE.test(p.url()) && PROJECT_RE.test(p.url()))
     .map((page) => ({ page, context, projectId: PROJECT_RE.exec(page.url())?.[1] ?? null }));
 }
 

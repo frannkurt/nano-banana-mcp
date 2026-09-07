@@ -34,7 +34,7 @@ interface Hit {
 
 /** Pestañas visibles del popover, con su texto normalizado y su centro. */
 async function visibleTabs(page: Page): Promise<Hit[]> {
-  return page.evaluate(() =>
+  const tabs = await page.evaluate(() =>
     [...document.querySelectorAll('[role="tab"]')]
       .filter((el) => (el as HTMLElement).offsetParent)
       .map((el) => {
@@ -46,13 +46,41 @@ async function visibleTabs(page: Page): Promise<Hit[]> {
         };
       }),
   );
+  if (tabs.length) return tabs;
+  // Flow UI (2026-09, flow.google.com): the settings panel renders options as
+  // plain leaf nodes (icon ligature + numeric label), not [role=tab]. The
+  // composer settings chip behind the panel shares some texts, so the LAST
+  // match wins — panel options render after the chip in DOM order.
+  return page.evaluate(() =>
+    [...document.querySelectorAll("*")]
+      .filter((el) => (el as HTMLElement).offsetParent && el.querySelectorAll("*").length === 0)
+      .map((el) => {
+        const r = el.getBoundingClientRect();
+        return {
+          text: ((el as HTMLElement).innerText || "").trim().replace(/\s+/g, " "),
+          cx: r.x + r.width / 2,
+          cy: r.y + r.height / 2,
+        };
+      })
+      .filter((t) => t.text && t.text.length <= 12),
+  );
 }
+
+/** Flow UI 2026-09: panel open shows every aspect option (crop_free, crop_9_16, ...);
+ * closed composer chip shows only the active aspect icon. */
 
 async function settingsOpen(page: Page): Promise<boolean> {
+  const kinds = await page.evaluate(() => {
+    const leaves = [...document.querySelectorAll("*")].filter(
+      (el) => (el as HTMLElement).offsetParent && el.querySelectorAll("*").length === 0,
+    );
+    return new Set(leaves.map((el) => ((el as HTMLElement).innerText || "").trim()).filter((t) => /^crop_/.test(t)))
+      .size;
+  });
+  if (kinds >= 2) return true;
   const tabs = await visibleTabs(page);
-  return tabs.some((t) => /^crop_/.test(t.text));
+  return tabs.some((t) => /^crop_/.test(t.text) || /^\d+\s*:\s*\d+$/.test(t.text));
 }
-
 /**
  * Abre la barra de configuración. El disparador es el icono que muestra la
  * relación actual; se distingue de las pestañas del popover porque no vive
@@ -156,7 +184,7 @@ export async function enableAutoGenerate(page: Page, authorized: boolean): Promi
 
 async function clickTab(page: Page, match: (text: string) => boolean, what: string, optional = false): Promise<void> {
   const tabs = await visibleTabs(page);
-  const hit = tabs.find((t) => match(t.text));
+  const hit = [...tabs].reverse().find((t) => match(t.text));
   if (!hit) {
     if (optional) return;
     throw new FlowError(M.noOption(what), M.visibleTabs(tabs.map((t) => t.text).join(" / ")));
@@ -256,6 +284,25 @@ export interface Settings {
  * el costo que Flow cotiza para esa combinación.
  */
 export async function applySettings(page: Page, settings: Settings): Promise<{ cost: number | null; raw: string }> {
+  // Flow UI (2026-09, flow.google.com): the composer chip reflects the live
+  // settings ("Image · crop_16_9 · x1"). When it already matches the request,
+  // skip panel driving entirely — clicking panel leaves misfires on this UI.
+  const chipOk = await page.evaluate(
+    ({ wanted }) => {
+      const chip = [...document.querySelectorAll("button")].find(
+        (b) =>
+          (b as HTMLElement).offsetParent &&
+          /crop_/.test(b.innerText || "") &&
+          /x\d/.test(b.innerText || ""),
+      );
+      if (!chip) return false;
+      const t = (chip.innerText || "").replace(/\s+/g, " ").trim();
+      return /image|nano banana/i.test(t) && t.includes(wanted.ligature) && t.includes(wanted.count);
+    },
+    { wanted: { ligature: ASPECTS[settings.aspect].ligature, count: `x${settings.count}` } },
+  );
+  if (chipOk) return { cost: null, raw: "chip already set" };
+
   await openSettings(page);
 
   // Modo imagen. El ligature `image` distingue la pestaña de la de vídeo
@@ -265,7 +312,11 @@ export async function applySettings(page: Page, settings: Settings): Promise<{ c
   await clickTab(page, (t) => /^image\b/.test(t), M.optionMediaType(), true);
 
   const { ligature } = ASPECTS[settings.aspect];
-  await clickTab(page, (t) => t.startsWith(ligature), M.optionAspect(settings.aspect));
+  await clickTab(
+    page,
+    (t) => t.startsWith(ligature) || t.replace(/\s+/g, "") === settings.aspect,
+    M.optionAspect(settings.aspect),
+  );
 
   await clickTab(page, (t) => t === `x${settings.count}`, M.optionCount(settings.count));
 
