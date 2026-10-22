@@ -1,7 +1,7 @@
 import type { Page } from "playwright-core";
 import { config } from "./config.js";
 import { getFlowTab } from "./browser.js";
-import { applySettings, closeSettings, submitPrompt } from "./ui.js";
+import { applySettings, closeSettings, ensureComposer, submitPrompt } from "./ui.js";
 import { attachReference, clearReferences, uploadImage } from "./reference.js";
 import { FlowError, type Aspect, type GeneratedImage } from "./types.js";
 import { M } from "./i18n.js";
@@ -28,26 +28,35 @@ interface DomMedia {
   src: string;
   width: number;
   height: number;
+  /** Posición en el documento: Flow inserta lo recién generado arriba de todo. */
+  orden: number;
 }
+
+/**
+ * Ids ya entregados en este proceso. La grilla de Flow es virtual: con muchos
+ * medios, uno viejo que no estaba en el DOM al sacar la foto de "antes" puede
+ * aparecer después y pasar por nuevo. Nunca se devuelve dos veces el mismo.
+ */
+const entregados = new Set<string>();
 
 /** Todos los medios `flow-content` presentes ahora, el de mayor resolución por id. */
 export async function snapshotMedia(page: Page): Promise<Map<string, DomMedia>> {
   const list = await page.evaluate((reSrc) => {
     const re = new RegExp(reSrc, "i");
-    const out: { id: string; src: string; width: number; height: number }[] = [];
-    for (const im of Array.from(document.images)) {
+    const out: { id: string; src: string; width: number; height: number; orden: number }[] = [];
+    Array.from(document.images).forEach((im, orden) => {
       const src = im.currentSrc || im.src || "";
       const m = re.exec(src);
-      if (!m) continue;
-      out.push({ id: m[1]!, src, width: im.naturalWidth || 0, height: im.naturalHeight || 0 });
-    }
+      if (!m) return;
+      out.push({ id: m[1]!, src, width: im.naturalWidth || 0, height: im.naturalHeight || 0, orden });
+    });
     return out;
   }, MEDIA_RE.source);
 
   const map = new Map<string, DomMedia>();
   for (const it of list) {
     const prev = map.get(it.id);
-    if (!prev || it.width * it.height > prev.width * prev.height) map.set(it.id, it);
+    if (!prev || it.width * it.height > prev.width * prev.height) map.set(it.id, { ...it, orden: Math.min(it.orden, prev?.orden ?? it.orden) });
   }
   return map;
 }
@@ -73,10 +82,14 @@ export async function collectFromDom(
 
   while (Date.now() - t0 < timeoutMs) {
     const actual = await snapshotMedia(page);
+    // Lo nuevo aparece arriba de lo que ya estaba. Un medio viejo que la grilla
+    // virtual recién dibuja queda abajo, y no cuenta.
+    let tope = Infinity;
+    for (const [id, m] of actual) if (antes.has(id)) tope = Math.min(tope, m.orden);
     for (const [id, m] of actual) {
-      // Sólo ids nuevos y con la imagen ya cargada (naturalWidth real, no el
-      // placeholder de 0 ancho).
-      if (!antes.has(id) && m.width > 200 && !nuevas.has(id)) {
+      // Sólo ids nuevos, arriba de los previos, nunca entregados, y con la imagen
+      // ya cargada (naturalWidth real, no el placeholder de 0 ancho).
+      if (!antes.has(id) && !entregados.has(id) && m.orden < tope && m.width > 200 && !nuevas.has(id)) {
         nuevas.set(id, m);
         if (primeraNueva === 0) primeraNueva = Date.now();
       }
@@ -86,7 +99,9 @@ export async function collectFromDom(
     await page.waitForTimeout(1500);
   }
 
-  return [...nuevas.values()].slice(0, esperadas).map((m) => ({
+  const elegidas = [...nuevas.values()].slice(0, esperadas);
+  for (const m of elegidas) entregados.add(m.id);
+  return elegidas.map((m) => ({
     mediaId: m.id,
     width: m.width,
     height: m.height,
@@ -160,6 +175,9 @@ export interface StartedGeneration {
 export async function startGeneration(opts: GenerateOptions): Promise<StartedGeneration> {
   const maxCost = opts.maxCost ?? config.maxCost;
   const page = opts.page ?? (await getFlowTab()).page;
+
+  // Tras un escalado Flow puede quedar en la vista de detalle: se vuelve al proyecto.
+  await ensureComposer(page);
 
   // Una referencia olvidada de un turno anterior cambiaría la imagen sin que nada
   // lo indique. Se limpia siempre. Si la UI cambió y esto fallara, no debe tumbar

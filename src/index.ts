@@ -5,9 +5,12 @@ import { z } from "zod";
 import sharp from "sharp";
 import * as path from "node:path";
 
+import { writeFile, mkdir } from "node:fs/promises";
+
 import { config } from "./config.js";
 import { ensureFlowTabs, getFlowTab, readStatus } from "./browser.js";
 import { generateImages, startGeneration } from "./generate.js";
+import { generateVideo } from "./video.js";
 import { listLibrary } from "./library.js";
 import { fetchMedia } from "./download.js";
 import { UPSCALE_TARGETS, upscaleImage, type UpscaleTarget } from "./upscale.js";
@@ -393,6 +396,41 @@ server.tool(
       const text = [M.batchHeader(ok, args.jobs.length), "", ...results.map((r) => r.line)].join("\n");
       const thumbs = results.map((r) => r.thumb).filter((t): t is Content => t !== null);
       return { content: [{ type: "text" as const, text }, ...thumbs] };
+    } catch (err) {
+      return fail(err);
+    }
+  },
+);
+
+server.tool(
+  "generate_video",
+  M.toolGenerateVideo(),
+  {
+    prompt: z.string().min(1).describe(M.argPrompt()),
+    aspect: z.enum(["16:9", "9:16"]).default("16:9").describe(M.argVideoAspect()),
+    out_dir: z.string().optional().describe(M.argOutDir()),
+    out_file: z.string().optional().describe(M.argOutFile()),
+    basename: z.string().optional().describe(M.argBasename()),
+  },
+  async (args) => {
+    try {
+      // El portón de costo vive dentro de generateVideo: con FLOW_MAX_COST=0 esto
+      // se niega antes de generar nada (el vídeo cuesta créditos).
+      const { bytes, cost, src } = await generateVideo({ prompt: args.prompt, aspect: args.aspect });
+
+      let out: string;
+      if (args.out_file) {
+        out = path.resolve(args.out_file);
+      } else {
+        const dir = path.resolve(args.out_dir ?? config.outputDir);
+        const base = args.basename ? slugify(args.basename) : slugify(args.prompt);
+        out = path.join(dir, `${base}.mp4`);
+      }
+      await mkdir(path.dirname(out), { recursive: true });
+      await writeFile(out, bytes);
+
+      const text = [M.resultVideoSaved(out, Math.round(bytes.length / 1024), cost), `id/src: ${src.split("?")[0]}`].join("\n");
+      return { content: [{ type: "text" as const, text }] };
     } catch (err) {
       return fail(err);
     }

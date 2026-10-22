@@ -120,6 +120,16 @@ export const M = {
     }),
 
   // ---- reference.ts ----
+  rightsConsent: () =>
+    p({
+      en: "Flow is asking to confirm you have the rights to use this image before uploading it.",
+      es: "Flow pide confirmar que tenés los derechos para usar esta imagen antes de subirla.",
+    }),
+  rightsConsentHint: () =>
+    p({
+      en: "Accepting terms is up to the person: accept the notice once in the Flow window, then retry.",
+      es: "Aceptar términos le toca a la persona: aceptá el aviso una vez en la ventana de Flow y reintentá.",
+    }),
   noFileInput: () =>
     p({
       en: "Couldn't find the file upload field on the Flow page.",
@@ -492,6 +502,45 @@ export const M = {
       es: "Ruta de salida. La extensión decide el formato.",
     }),
   argSizePlain: () => p({ en: 'Exact size, "WIDTHxHEIGHT" format.', es: 'Tamaño exacto, formato "ANCHOxALTO".' }),
+
+  // ---- video ----
+  toolGenerateVideo: () =>
+    p({
+      en:
+        "Generate a video with Google Flow (Veo) and save it to disk. UNLIKE images, video COSTS CREDITS: it only runs when the FLOW_MAX_COST ceiling is raised above the quoted cost; otherwise it refuses before generating. Text-to-video from a prompt; pick an aspect (16:9 or 9:16).",
+      es:
+        "Genera un video con Google Flow (Veo) y lo guarda en disco. A DIFERENCIA de las imágenes, el video CUESTA CRÉDITOS: solo corre si el techo FLOW_MAX_COST está por encima del costo cotizado; si no, se niega antes de generar. Texto a video desde un prompt; elegí relación (16:9 o 9:16).",
+    }),
+  argVideoAspect: () =>
+    p({
+      en: "Aspect ratio for the video. Flow's Veo supports 16:9 and 9:16. Defaults to 16:9.",
+      es: "Relación de aspecto del video. El Veo de Flow soporta 16:9 y 9:16. Por defecto 16:9.",
+    }),
+  resultVideoSaved: (file: string, kb: number, cost: number) =>
+    p({
+      en: `Video saved: ${file}  (${kb} KB, cost ${cost} credits, id below)`,
+      es: `Video guardado: ${file}  (${kb} KB, costo ${cost} puntos, id abajo)`,
+    }),
+  videoModeMissing: () =>
+    p({
+      en: "Couldn't find the video (videocam) mode in Flow's settings panel. The UI may have changed, or this project can't do video.",
+      es: "No encontré el modo video (videocam) en el panel de ajustes de Flow. Puede haber cambiado la UI, o este proyecto no hace video.",
+    }),
+  noVideo: () =>
+    p({
+      en: "No video showed up after submitting.",
+      es: "No apareció ningún video después de enviar.",
+    }),
+  noVideoHint: () =>
+    p({
+      en: "Video renders take longer than images; try raising FLOW_GENERATE_TIMEOUT_MS, and confirm the generation actually started in the Flow tab.",
+      es: "Los videos tardan más que las imágenes; probá subir FLOW_GENERATE_TIMEOUT_MS y confirmá que la generación arrancó en la pestaña de Flow.",
+    }),
+  videoDownloadFailed: (why: string) =>
+    p({
+      en: `Couldn't download the generated video: ${why}`,
+      es: `No pude descargar el video generado: ${why}`,
+    }),
 
   ready: (cdp: string, out: string, max: number) =>
     p({

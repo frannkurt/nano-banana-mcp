@@ -20,18 +20,56 @@ import { M } from "./i18n.js";
 
 const UPLOAD_ENDPOINT = "v1/flow/uploadImage";
 
-/** Sube un archivo local a la biblioteca del proyecto y devuelve su mediaId. */
+/** Sube un archivo local a la biblioteca del proyecto. Devuelve su mediaId (vacío en la UI nueva) y el nombre. */
 export async function uploadImage(page: Page, filePath: string): Promise<{ mediaId: string; fileName: string }> {
   const fileName = path.basename(filePath);
 
+  const input = await page.$('input[type="file"]');
+  if (!input) {
+    // UI nueva: no hay <input> fijo. Se abre el selector del compositor y su botón
+    // de subir (ligature `upload`) pide el archivo por un filechooser.
+    await openPicker(page);
+    const subir = await findControl(page, (t) => /^upload\b/.test(t));
+    if (!subir) {
+      throw new FlowError(M.noFileInput(), M.noFileInputHint());
+    }
+    const [chooser] = await Promise.all([
+      page.waitForEvent("filechooser", { timeout: 15_000 }),
+      clickAt(page, subir.cx, subir.cy),
+    ]);
+    await chooser.setFiles(filePath);
+    await page.waitForTimeout(1_500);
+    // Flow puede pedir confirmar los derechos sobre la imagen. Aceptar términos es
+    // decisión de la persona: no se clickea, se avisa.
+    if (await rightsDialogOpen(page)) {
+      throw new FlowError(M.rightsConsent(), M.rightsConsentHint());
+    }
+    // La subida va por el RPC ofuscado `batchexecute`, sin id legible: se confirma
+    // cuando el archivo aparece por nombre en la lista del selector. El id no hace
+    // falta, la referencia se adjunta por nombre.
+    for (let i = 0; i < 60; i++) {
+      if (await findControl(page, (t) => t.includes(fileName))) {
+        // Al terminar, el selector se cierra solo un par de segundos después. Si
+        // attachReference clickea mientras se cierra, el clic se pierde: se espera
+        // a que se cierre (o se lo cierra) para arrancar de cero.
+        for (let j = 0; j < 10 && (await findControl(page, (t) => /^upload\b/.test(t))); j++) {
+          await page.waitForTimeout(700);
+        }
+        if (await findControl(page, (t) => /^upload\b/.test(t))) {
+          await page.keyboard.press("Escape");
+          await page.waitForTimeout(500);
+        }
+        return { mediaId: "", fileName };
+      }
+      await page.waitForTimeout(1_000);
+    }
+    throw new FlowError(M.uploadUnconfirmed(fileName), M.uploadUnconfirmedHint());
+  }
+
+  // UI vieja: <input type="file"> fijo y respuesta de `uploadImage` con el id.
   const esperando = page.waitForResponse((r) => r.url().includes(UPLOAD_ENDPOINT) && r.request().method() === "POST", {
     timeout: 120_000,
   });
-
-  const input = await page.$('input[type="file"]');
-  if (!input) {
-    throw new FlowError(M.noFileInput(), M.noFileInputHint());
-  }
   await input.setInputFiles(filePath);
 
   let res;
@@ -57,6 +95,68 @@ async function clickAt(page: Page, x: number, y: number): Promise<void> {
   await page.mouse.move(x, y);
   await page.waitForTimeout(80);
   await page.mouse.click(x, y);
+}
+
+/** Primer control visible cuyo texto cumple `match`. */
+async function findControl(page: Page, match: (t: string) => boolean): Promise<{ cx: number; cy: number } | null> {
+  const hits = await page.evaluate(() =>
+    [...document.querySelectorAll("button,[role=button]")]
+      .filter((e) => (e as HTMLElement).offsetParent)
+      .map((e) => {
+        const r = e.getBoundingClientRect();
+        return { t: ((e as HTMLElement).innerText || "").trim(), cx: r.x + r.width / 2, cy: r.y + r.height / 2 };
+      }),
+  );
+  return hits.find((h) => match(h.t)) ?? null;
+}
+
+/**
+ * Abre el selector de referencias del compositor si no está abierto.
+ *
+ * UI vieja: botón `add_2`. UI nueva: el `add` del compositor, que es el de más
+ * abajo en pantalla (hay otros `add` en la barra superior y en la lateral); una vez
+ * abierto, ese mismo botón pasa a ser `close` y aparece el de subir (`upload`).
+ */
+async function openPicker(page: Page): Promise<void> {
+  if (await findControl(page, (t) => /^upload\b/.test(t))) return;
+  const abrir = await page.evaluate(() => {
+    const els = [...document.querySelectorAll("button,[role=button]")].filter((e) => (e as HTMLElement).offsetParent);
+    const leer = (e: Element) => ((e as HTMLElement).innerText || "").trim();
+    const viejo = els.find((e) => /^add_2\b/.test(leer(e)));
+    const hit =
+      viejo ??
+      els
+        .filter((e) => leer(e) === "add")
+        .sort((a, b) => b.getBoundingClientRect().y - a.getBoundingClientRect().y)[0];
+    if (!hit) return null;
+    const r = hit.getBoundingClientRect();
+    return { cx: r.x + r.width / 2, cy: r.y + r.height / 2 };
+  });
+  if (!abrir) {
+    throw new FlowError(M.noAttachControl());
+  }
+  await clickAt(page, abrir.cx, abrir.cy);
+  await page.waitForTimeout(1_200);
+}
+
+/**
+ * ¿Está abierto el aviso de "derechos para usar esta imagen"? Se reconoce por su
+ * forma, no por su texto: un diálogo chico con exactamente dos botones de texto y
+ * sin lista de medios.
+ */
+function rightsDialogOpen(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const porForma = [...document.querySelectorAll("[role=dialog],[role=alertdialog]")].some((d) => {
+      if (!(d as HTMLElement).offsetParent) return false;
+      const botones = [...d.querySelectorAll("button")].filter((b) => (b as HTMLElement).offsetParent);
+      return botones.length === 2 && d.querySelectorAll("img").length === 0;
+    });
+    // Respaldo: el aviso no siempre lleva role=dialog.
+    const porBoton = [...document.querySelectorAll("button")].some(
+      (b) => (b as HTMLElement).offsetParent && /^(acepto|aceptar|i agree|agree|accept|aceito|concordo)$/i.test(((b as HTMLElement).innerText || "").trim()),
+    );
+    return porForma || porBoton;
+  });
 }
 
 /** ¿Quedó alguna imagen adjunta al compositor? */
@@ -136,18 +236,7 @@ export async function attachReference(page: Page, fileName: string): Promise<voi
   // Un diálogo abierto de un intento previo haría que el clic siguiente lo
   // cierre en vez de abrirlo, y el fallo se atribuiría a la búsqueda.
   await closePicker(page);
-
-  const abrir = await page.evaluate(() => {
-    const els = [...document.querySelectorAll("button,[role=button]")].filter((e) => (e as HTMLElement).offsetParent);
-    const hit = els.find((e) => /^add_2\b/.test(((e as HTMLElement).innerText || "").trim()));
-    if (!hit) return null;
-    const r = hit.getBoundingClientRect();
-    return { cx: r.x + r.width / 2, cy: r.y + r.height / 2 };
-  });
-  if (!abrir) {
-    throw new FlowError(M.noAttachControl());
-  }
-  await clickAt(page, abrir.cx, abrir.cy);
+  await openPicker(page);
 
   // La biblioteca se puebla por red. Una espera fija falla justo cuando el
   // proyecto tiene muchos medios, que es cuando más se la necesita: hay que
@@ -161,6 +250,19 @@ export async function attachReference(page: Page, fileName: string): Promise<voi
       //
       // Entre filas repetidas —el mismo archivo subido dos veces— gana la de
       // más arriba, que es la más reciente.
+      //
+      // UI nueva: la grilla del proyecto también muestra el nombre (y queda más
+      // arriba que el selector). Las filas del selector son botones que empiezan
+      // con el ligature `image`; si hay alguna, se elige entre ellas.
+      const filas = [...document.querySelectorAll("button,[role=button]")].filter((el) => {
+        if (!(el as HTMLElement).offsetParent) return false;
+        const t = ((el as HTMLElement).innerText || "").trim();
+        return /^image\b/.test(t) && t.includes(n);
+      });
+      if (filas.length) {
+        const r = filas[0]!.getBoundingClientRect();
+        return { area: r.width * r.height, y: r.y, cx: r.x + r.width / 2, cy: r.y + r.height / 2 };
+      }
       const cands = [...document.querySelectorAll("div,li,button")]
         .filter((el) => {
           if (!(el as HTMLElement).offsetParent) return false;

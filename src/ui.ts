@@ -114,6 +114,39 @@ export async function openSettings(page: Page): Promise<void> {
   }
 }
 
+/**
+ * Deja la pestaña en la vista del proyecto, con el compositor a mano.
+ *
+ * Tras un escalado (menú contextual → Descargar → 2K) Flow puede quedar en la
+ * vista de detalle del medio (botón `keyboard_return`) o con un diálogo o menú
+ * abierto; desde ahí el disparador de configuración no abre nada y la próxima
+ * generación falla con "el panel no se abrió". Volver a la URL del proyecto es
+ * lo único que garantiza el estado limpio.
+ */
+export async function ensureComposer(page: Page): Promise<void> {
+  const estado = await page.evaluate(() => {
+    const vis = [...document.querySelectorAll('[role="tab"], button, [role="button"]')].filter(
+      (el) => (el as HTMLElement).offsetParent,
+    );
+    const textos = vis.map((el) => ((el as HTMLElement).innerText || "").trim());
+    return {
+      detalle: textos.some((t) => /^keyboard_return\b/.test(t)),
+      disparador: textos.some((t) => /crop_[0-9a-z]/.test(t) && /(^|\s)x\d(\s|$)/.test(t)),
+      dialogo: !!document.querySelector('[role=dialog][data-state=open], [role="menu"]'),
+    };
+  });
+  if (!estado.detalle && estado.disparador && !estado.dialogo) return;
+
+  const m = /^(https:\/\/[^/]+\/project\/[^/?#]+)/.exec(page.url());
+  if (m) {
+    await page.goto(m[1]!, { waitUntil: "domcontentloaded", timeout: 60_000 });
+  } else {
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
+  }
+  await page.waitForSelector('[contenteditable="true"]', { timeout: 60_000 });
+  await page.waitForTimeout(1_500);
+}
+
 export async function closeSettings(page: Page): Promise<void> {
   if (!(await settingsOpen(page))) return;
   await page.keyboard.press("Escape");
@@ -131,9 +164,15 @@ async function clickControl(page: Page, match: (text: string) => boolean, what: 
 }
 
 /** Igual que clickControl pero devuelve si estaba o no, sin fallar. */
-async function clickControlIfPresent(page: Page, match: (text: string) => boolean): Promise<boolean> {
+async function clickControlIfPresent(
+  page: Page,
+  match: (text: string) => boolean,
+  last = false,
+): Promise<boolean> {
   const controls = await visibleControls(page);
-  const hit = controls.find((c) => match(c.text));
+  // `last`: el panel se dibuja después en el DOM; sirve cuando una pestaña de la
+  // biblioteca ("image Imágenes") matchea igual que la opción del panel.
+  const hit = last ? controls.filter((c) => match(c.text)).pop() : controls.find((c) => match(c.text));
   if (!hit) return false;
   await clickAt(page, hit.cx, hit.cy);
   await page.waitForTimeout(400);
@@ -183,23 +222,43 @@ export interface Settings {
   count: number;
 }
 
+export type MediaMode = "image" | "video";
+
 /**
- * Deja el panel en modo imagen, con la relación y la cantidad pedidas, y devuelve
- * el costo. En modo imagen (que es lo único que este servidor pide) la generación
- * es gratuita: si Flow no muestra ningún costo, se cotiza 0.
+ * Deja el panel en el modo pedido, con la relación (y en imagen, la cantidad), y
+ * devuelve el costo cotizado.
+ *
+ * En modo imagen la generación es gratuita: si Flow no muestra ningún costo, se
+ * cotiza 0. En modo VÍDEO nunca se coacciona a 0: el vídeo cuesta créditos, así
+ * que si no se pudo leer el número se devuelve null y quien llama DEBE negarse
+ * (nunca generar vídeo creyendo que es gratis).
  */
-export async function applySettings(page: Page, settings: Settings): Promise<{ cost: number | null; raw: string }> {
+export async function applySettings(
+  page: Page,
+  settings: Settings,
+  mode: MediaMode = "image",
+): Promise<{ cost: number | null; raw: string }> {
   await openSettings(page);
 
-  // Modo imagen. El ligature `image` distingue del de vídeo (`videocam`) sin
-  // depender de las palabras "Imagen"/"Vídeo". Si no hay ninguna de las dos, no
-  // hay nada que elegir (el modelo sólo hace imágenes) y se sigue de largo.
-  if (!(await clickControlIfPresent(page, (t) => /^image\b/.test(t)))) {
+  // Tipo de medio por ligature (`image` / `videocam`), estable entre idiomas.
+  if (mode === "video") {
+    // `last`: la barra lateral ahora tiene una sección "videocam Vídeos" que matchea igual.
+    if (!(await clickControlIfPresent(page, (t) => /^videocam\b/.test(t), true))) {
+      // Puede que ya esté en vídeo; si tampoco existe el control, no hay modo vídeo.
+      const controls = await visibleControls(page);
+      if (!controls.some((c) => /^videocam\b/.test(c.text))) {
+        throw new FlowError(M.videoModeMissing(), M.visibleTabs(controls.map((c) => c.text).join(" / ")));
+      }
+    }
+  } else if (!(await clickControlIfPresent(page, (t) => /^image\b/.test(t), true))) {
     const controls = await visibleControls(page);
     if (controls.some((c) => /^videocam\b/.test(c.text))) {
       throw new FlowError(M.noOption(M.optionMediaType()), M.visibleTabs(controls.map((c) => c.text).join(" / ")));
     }
   }
+
+  // Elegir el tipo de medio puede cerrar el panel; se reabre si hace falta.
+  await openSettings(page);
 
   // Relación de aspecto. Se matchea por el ligature (`crop_9_16`) o por la
   // etiqueta numérica ("9:16") que el botón muestra al lado; ambas son estables
@@ -212,18 +271,19 @@ export async function applySettings(page: Page, settings: Settings): Promise<{ c
     M.optionAspect(settings.aspect),
   );
 
-  // Cantidad. Si no se ofrece y se pidió una sola imagen, no hay nada que elegir:
-  // una es el default del compositor. Si se pidieron varias, callarse daría menos.
-  if (!(await clickControlIfPresent(page, (t) => t === `x${settings.count}`)) && settings.count > 1) {
-    const controls = await visibleControls(page);
-    throw new FlowError(M.noOption(M.optionCount(settings.count)), M.visibleTabs(controls.map((c) => c.text).join(" / ")));
+  // Cantidad: sólo en imagen. Si no se ofrece y se pidió una sola, no hay nada que
+  // elegir; si se pidieron varias, callarse daría menos.
+  if (mode === "image") {
+    if (!(await clickControlIfPresent(page, (t) => t === `x${settings.count}`)) && settings.count > 1) {
+      const controls = await visibleControls(page);
+      throw new FlowError(M.noOption(M.optionCount(settings.count)), M.visibleTabs(controls.map((c) => c.text).join(" / ")));
+    }
   }
 
   const quote = await readQuotedCost(page);
-  // Modo imagen es gratis: si no se leyó ningún número, el costo es 0. Sólo
-  // llegamos acá con el modo imagen seleccionado (o sin elección de tipo), así
-  // que no hay riesgo de tapar un costo real de vídeo.
-  if (quote.cost === null) return { cost: 0, raw: quote.raw || "image mode (free)" };
+  // Sólo en imagen "sin número" significa gratis. En vídeo, null se propaga para
+  // que el portón de costo se niegue (jamás generar vídeo creyéndolo gratis).
+  if (mode === "image" && quote.cost === null) return { cost: 0, raw: quote.raw || "image mode (free)" };
   return quote;
 }
 
