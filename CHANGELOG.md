@@ -3,6 +3,35 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **`generate_video` tool** (Veo inside Flow). Text-to-video in 16:9 or 9:16. Video costs credits, so it only runs
+  when `FLOW_MAX_COST` is raised above the quoted cost; otherwise it refuses before submitting. On the new UI the
+  result is taken from the video tile: open it, Download → "720p" (original size), via Playwright's `download`
+  event. 1080p/4K are upscales and are never chosen. Verified live with three 8 s clips.
+
+### Fixed
+
+- **Media type click hit the sidebar.** "image Imágenes" / "videocam Vídeos" in the left rail matched the same
+  ligature as the panel options, so the click closed the settings panel and every following step failed
+  ("couldn't find the 16:9 option"). The panel option, which is drawn later in the DOM, now wins, and the panel is
+  reopened if choosing the media type closed it.
+- **Stuck after upscaling.** Download → 2K leaves Flow in the media detail view, where the settings trigger opens
+  nothing. Every image and video generation now starts with `ensureComposer()`, which goes back to the project URL
+  when it sees the detail view, an open dialog or menu, or no settings trigger.
+- **Old images returned as new.** The project grid is virtual: an old tile that was off the DOM when the "before"
+  snapshot was taken could show up later and be harvested as the new result. Only media that appear above every
+  pre-existing one count, and an id is never returned twice in the same process.
+- **Reference upload on the new UI.** There is no fixed `<input type="file">` any more: the composer's `add`
+  button opens the picker, its `upload` button raises a file chooser, and the upload is confirmed when the file
+  name shows up in the list. That happens through `batchexecute`, so there's no readable id. The picker closes
+  itself shortly after an upload, so the attach waits for it to close and starts clean. Picker rows (which start
+  with the `image` ligature) are preferred over grid tiles that show the same file name.
+- **Rights notice.** If Flow asks to confirm the rights over an uploaded image, the connector stops and says so
+  instead of clicking "accept": accepting terms is up to the person. In practice it is asked once per account.
+
 ## [0.3.0] — 2026-09-05
 
 ### Added
