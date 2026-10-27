@@ -8,8 +8,11 @@ import * as path from "node:path";
 import { writeFile, mkdir } from "node:fs/promises";
 
 import { config } from "./config.js";
-import { ensureFlowTabs, getFlowTab, readStatus } from "./browser.js";
-import { generateImages, startGeneration } from "./generate.js";
+import { getFlowTab, readStatus, resolveEndpoint } from "./browser.js";
+import { generateImages, generateQueue } from "./generate.js";
+
+/** Pedidos por llamada a generate_batch. Van todos encolados en una sola pestaña. */
+const MAX_BATCH = 8;
 import { generateVideo } from "./video.js";
 import { listLibrary } from "./library.js";
 import { fetchMedia } from "./download.js";
@@ -58,7 +61,7 @@ server.tool(
     try {
       const s = await readStatus();
       const lines = [
-        M.statusBrowser(config.cdpUrl),
+        M.statusBrowser(resolveEndpoint()),
         M.statusSession(s.signedIn ? taparCorreo(s.account) : null),
         M.statusProject(s.projectId),
         M.statusCredits(s.credits, s.tier),
@@ -317,19 +320,24 @@ server.tool(
           size: z.string().optional(),
           aspect: z.enum(ASPECT_KEYS as [Aspect, ...Aspect[]]).optional(),
           basename: z.string().optional(),
+          reference_images: z.array(z.string()).optional(),
+          reference_library_names: z.array(z.string()).optional(),
         }),
       )
       .min(1)
-      .max(4)
+      .max(MAX_BATCH)
       .describe(M.argJobs()),
     out_dir: z.string().optional().describe(M.argOutDir()),
     format: z.enum(["jpg", "png", "webp"]).default("jpg").describe(M.argFormat()),
     fit: z.enum(["cover", "contain"]).default("cover").describe(M.argFit()),
     background: z.string().optional().describe(M.argBackground()),
+    upscale: z
+      .enum(Object.keys(UPSCALE_TARGETS) as [UpscaleTarget, ...UpscaleTarget[]])
+      .optional()
+      .describe(M.argUpscale()),
   },
   async (args) => {
     try {
-      const tabs = await ensureFlowTabs(args.jobs.length);
       const dir = path.resolve(args.out_dir ?? config.outputDir);
 
       // Dos prompts parecidos no deben pisarse el archivo: si el slug se repite,
@@ -342,55 +350,41 @@ server.tool(
         return base;
       };
 
-      // Fase de UI, de a una: Chrome congela el requestAnimationFrame de las
-      // pestañas de fondo y React no procesa los clics, así que cada pestaña se
-      // trae al frente solo para configurar y enviar. Son segundos por trabajo.
-      // La espera de la generación —lo que de verdad tarda— sí corre en paralelo.
-      type Started = { started: import("./generate.js").StartedGeneration; target: ReturnType<typeof parseSize> | null };
-      const enVuelo: (Started | { error: string })[] = [];
+      const targets = args.jobs.map((job) => (job.size ? parseSize(job.size) : null));
+      // Todos los pedidos van a la MISMA pestaña, encolados: Flow acepta el
+      // siguiente mientras el anterior genera (ver generateQueue).
+      const { results: cola, page } = await generateQueue(
+        args.jobs.map((job, i) => ({
+          prompt: job.prompt,
+          aspect: job.aspect ?? (targets[i] ? nearestAspect(targets[i]!.width, targets[i]!.height) : "1:1"),
+          count: 1,
+          referenceImages: job.reference_images,
+          referenceLibraryNames: job.reference_library_names,
+        })),
+      );
+
+      // Descarga de a una: el escalado usa el menú de la misma pestaña.
+      const results: { line: string; thumb: Content | null }[] = [];
       for (const [i, job] of args.jobs.entries()) {
-        const page = tabs[i]!.page;
         try {
-          const target = job.size ? parseSize(job.size) : null;
-          const aspect: Aspect = job.aspect ?? (target ? nearestAspect(target.width, target.height) : "1:1");
-          await page.bringToFront();
-          const started = await startGeneration({ prompt: job.prompt, aspect, count: 1, page });
-          // Un rechazo tardío (timeout) no debe tumbar el proceso si otro trabajo
-          // falla primero: se maneja al cosechar, acá solo se evita el unhandled.
-          started.harvest.catch(() => {});
-          enVuelo.push({ started, target });
+          const r = cola[i]!;
+          const img = r.images[0];
+          if (!img) throw new Error(r.error ?? M.noImages());
+          const bytes = args.upscale
+            ? await upscaleImage(page, img.mediaId, { target: args.upscale })
+            : await fetchMedia(page, img.mediaId, img.signedUrl);
+          const out = path.join(dir, `${baseDe(job, i)}.${args.format}`);
+          const target = targets[i];
+          const res = await writeImage(bytes, out, target ? { ...target, fit: args.fit, background: args.background } : undefined);
+          results.push({
+            line: `${res.file}  (${res.width}x${res.height}, ${Math.round(res.bytes / 1024)} KB, id ${img.mediaId})`,
+            thumb: await preview(bytes),
+          });
         } catch (err) {
-          enVuelo.push({ error: (err as Error)?.message ?? String(err) });
+          const e = err as FlowError;
+          results.push({ line: M.batchJobFailed(i + 1, job.prompt.slice(0, 60), e?.message ?? String(err)), thumb: null });
         }
       }
-
-      const results = await Promise.all(
-        args.jobs.map(async (job, i) => {
-          const vuelo = enVuelo[i]!;
-          try {
-            if ("error" in vuelo) throw new Error(vuelo.error);
-            const images = await vuelo.started.harvest;
-            const img = images[0]!;
-            const bytes = await fetchMedia(vuelo.started.page, img.mediaId, img.signedUrl);
-            const out = path.join(dir, `${baseDe(job, i)}.${args.format}`);
-            const res = await writeImage(
-              bytes,
-              out,
-              vuelo.target ? { ...vuelo.target, fit: args.fit, background: args.background } : undefined,
-            );
-            return {
-              line: `${res.file}  (${res.width}x${res.height}, ${Math.round(res.bytes / 1024)} KB, id ${img.mediaId})`,
-              thumb: await preview(bytes),
-            };
-          } catch (err) {
-            const e = err as FlowError;
-            return {
-              line: M.batchJobFailed(i + 1, job.prompt.slice(0, 60), e?.message ?? String(err)),
-              thumb: null,
-            };
-          }
-        }),
-      );
 
       const ok = results.filter((r) => r.thumb).length;
       const text = [M.batchHeader(ok, args.jobs.length), "", ...results.map((r) => r.line)].join("\n");
@@ -439,4 +433,4 @@ server.tool(
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error(M.ready(config.cdpUrl, config.outputDir, config.maxCost));
+console.error(M.ready(config.cdpUrl || "auto", config.outputDir, config.maxCost));

@@ -198,7 +198,24 @@ function composerHasImage(page: Page): Promise<boolean> {
 async function confirmPicker(page: Page): Promise<boolean> {
   const boton = await page.evaluate(() => {
     const dlg = document.querySelector("[role=dialog][data-state=open]");
-    if (!dlg) return null;
+    if (!dlg) {
+      // UI nueva: el selector no es un diálogo. Su botón de confirmar ("Añadir a
+      // petición" en español) es el único botón con texto así de ancho: las
+      // tarjetas de la grilla no tienen texto y los de la barra lateral son más
+      // angostos. Se mide, no se lee, para no atarse al idioma.
+      const cands = [...document.querySelectorAll("button")]
+        .filter((b) => {
+          if (!(b as HTMLElement).offsetParent || (b as HTMLButtonElement).disabled) return false;
+          if (!((b as HTMLElement).innerText || "").trim()) return false;
+          return b.getBoundingClientRect().width >= 250;
+        })
+        .map((b) => {
+          const r = b.getBoundingClientRect();
+          return { ancho: r.width, cx: r.x + r.width / 2, cy: r.y + r.height / 2 };
+        })
+        .sort((a, b) => b.ancho - a.ancho);
+      return cands[0] ?? null;
+    }
     const caja = dlg.getBoundingClientRect();
     const cands = [...dlg.querySelectorAll("button")]
       .filter((b) => {
@@ -220,12 +237,24 @@ async function confirmPicker(page: Page): Promise<boolean> {
   return true;
 }
 
-/** Cierra el selector si quedó abierto de un intento anterior. */
+/**
+ * Cierra el selector si quedó abierto de un intento anterior. UI vieja: un
+ * diálogo abierto. UI nueva: no es un diálogo; está abierto si se ve su botón de
+ * subir (ligature `upload`).
+ */
 async function closePicker(page: Page): Promise<void> {
-  const abierto = await page.evaluate(() => !!document.querySelector('[role=dialog][data-state=open]'));
-  if (!abierto) return;
-  await page.keyboard.press("Escape");
-  await page.waitForTimeout(500);
+  for (let i = 0; i < 3; i++) {
+    const abierto = await page.evaluate(
+      () =>
+        !!document.querySelector("[role=dialog][data-state=open]") ||
+        [...document.querySelectorAll("button,[role=button]")].some(
+          (e) => (e as HTMLElement).offsetParent && /^upload\b/.test(((e as HTMLElement).innerText || "").trim()),
+        ),
+    );
+    if (!abierto) return;
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(600);
+  }
 }
 
 /**
@@ -233,6 +262,20 @@ async function closePicker(page: Page): Promise<void> {
  * el nombre de archivo con el que se subió.
  */
 export async function attachReference(page: Page, fileName: string): Promise<void> {
+  try {
+    await attachOnce(page, fileName);
+  } catch {
+    // Justo después de un envío Flow puede estar redibujando el compositor y el
+    // clic se pierde: un segundo intento desde cero.
+    await closePicker(page);
+    await page.waitForTimeout(1_500);
+    await attachOnce(page, fileName);
+  }
+  // El selector se cierra solo al elegir; si no, que no quede tapando el panel.
+  await closePicker(page);
+}
+
+async function attachOnce(page: Page, fileName: string): Promise<void> {
   // Un diálogo abierto de un intento previo haría que el clic siguiente lo
   // cierre en vez de abrirlo, y el fallo se atribuiría a la búsqueda.
   await closePicker(page);
@@ -252,13 +295,17 @@ export async function attachReference(page: Page, fileName: string): Promise<voi
       // más arriba, que es la más reciente.
       //
       // UI nueva: la grilla del proyecto también muestra el nombre (y queda más
-      // arriba que el selector). Las filas del selector son botones que empiezan
-      // con el ligature `image`; si hay alguna, se elige entre ellas.
-      const filas = [...document.querySelectorAll("button,[role=button]")].filter((el) => {
-        if (!(el as HTMLElement).offsetParent) return false;
-        const t = ((el as HTMLElement).innerText || "").trim();
-        return /^image\b/.test(t) && t.includes(n);
-      });
+      // arriba que el selector). Las filas del selector tienen role="option" (y
+      // elegir una la adjunta y cierra el selector); en versiones anteriores eran
+      // botones que empezaban con el ligature `image`. Se elige entre ellas.
+      const visible = (el: Element) => !!(el as HTMLElement).offsetParent;
+      const texto = (el: Element) => ((el as HTMLElement).innerText || "").trim();
+      let filas = [...document.querySelectorAll('[role="option"]')].filter((el) => visible(el) && texto(el).includes(n));
+      if (!filas.length) {
+        filas = [...document.querySelectorAll("button,[role=button]")].filter(
+          (el) => visible(el) && /^image\b/.test(texto(el)) && texto(el).includes(n),
+        );
+      }
       if (filas.length) {
         const r = filas[0]!.getBoundingClientRect();
         return { area: r.width * r.height, y: r.y, cx: r.x + r.width / 2, cy: r.y + r.height / 2 };
@@ -289,7 +336,15 @@ export async function attachReference(page: Page, fileName: string): Promise<voi
     throw new FlowError(M.notInLibrary(fileName), M.notInLibraryHint());
   }
 
-  await clickAt(page, item.cx, item.cy);
+  // UI nueva: mientras otros pedidos terminan, Flow inserta filas arriba y la
+  // lista se corre entre que se mide y se clickea. El clic se resuelve sobre el
+  // elemento, en el momento, con un localizador; las coordenadas quedan de respaldo.
+  const opcion = page.locator('[role="option"]', { hasText: fileName }).filter({ visible: true }).first();
+  if (await opcion.count()) {
+    await opcion.click({ timeout: 10_000 });
+  } else {
+    await clickAt(page, item.cx, item.cy);
+  }
   await page.waitForTimeout(1_500);
 
   // Elegir la fila sólo la marca: falta confirmar. Se chequea antes por si

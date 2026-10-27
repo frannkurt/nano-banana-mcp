@@ -6,7 +6,13 @@ import * as path from "node:path";
  * a un Chrome donde una persona ya inició sesión a mano.
  */
 export interface Config {
+  /**
+   * Endpoint CDP explícito (http://… o ws://…). Vacío = engancharse al Chrome de
+   * todos los días si permitió la depuración remota (ver resolveEndpoint).
+   */
   cdpUrl: string;
+  /** Carpeta de datos del Chrome de todos los días. Vacía = la de siempre según el sistema. */
+  chromeUserDataDir: string;
   outputDir: string;
   /** Techo de costo en puntos. 0 = solo generaciones gratuitas (imágenes). */
   maxCost: number;
@@ -23,7 +29,8 @@ function envInt(name: string, fallback: number): number {
 
 export function loadConfig(): Config {
   return {
-    cdpUrl: process.env.FLOW_CDP_URL || "http://127.0.0.1:9222",
+    cdpUrl: process.env.FLOW_CDP_URL || "",
+    chromeUserDataDir: process.env.FLOW_CHROME_USER_DATA || "",
     outputDir: path.resolve(process.env.FLOW_OUTPUT_DIR || path.join(os.homedir(), "nano-banana-images")),
     maxCost: envInt("FLOW_MAX_COST", 0),
     generateTimeoutMs: envInt("FLOW_GENERATE_TIMEOUT_MS", 180_000),

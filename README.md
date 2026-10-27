@@ -157,9 +157,23 @@ npm run build
 
 ## Setup
 
-### 1. Launch Chrome with remote debugging
+### 1. Let the server reach Chrome
 
-**Easiest — use the bundled launcher** (persistent, dedicated profile so you sign in only once):
+**Recommended — your everyday Chrome (version 144 or newer).** No second browser, your own session, extensions and
+tabs:
+
+1. Open `chrome://inspect/#remote-debugging` and tick **"Allow remote debugging for this browser instance"**. Below
+   it Chrome should show the server running at `127.0.0.1:9222`.
+2. The first time the server attaches, Chrome asks whether to allow it. Accept. The server keeps that connection for
+   the whole session, so it doesn't ask again on every image.
+
+The server finds it on its own: Chrome writes the port to `DevToolsActivePort` inside its user-data folder, and the
+server reads it there. Leave `FLOW_CDP_URL` unset for this.
+
+**Alternative — a separate Chrome with its own profile.** Chrome won't open `--remote-debugging-port` on your
+everyday profile, which is why this needs a profile of its own (it will look like a fresh Chrome, without your
+extensions). If nothing is found through the option above, the server falls back to port 9222 on its own. The easiest
+way is the bundled launcher (persistent, dedicated profile so you sign in only once):
 
 ```bash
 npm run chrome
@@ -190,18 +204,23 @@ google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.nano-banana-m
 
 ### 2. Sign in and open a project
 
-In that window, sign in with your Google account and open a Flow project. The URL must end up at
+In that Chrome, sign in with your Google account and open a Flow project. The URL must end up at
 `flow.google.com/project/<id>`.
 
-Without an open project there is no composer, and without a composer nothing can be generated.
+Without an open project there is no composer, and without a composer nothing can be generated. The server remembers
+the last project it worked in (`~/.nano-banana-mcp/state.json`): if Flow is open on its home page, or not open at
+all, it takes a single tab back to that project.
 
 ### 3. Register the server
 
 In Claude Code:
 
 ```bash
-claude mcp add nano-banana --env FLOW_CDP_URL=http://127.0.0.1:9222 --env FLOW_OUTPUT_DIR=./images -- node /path/to/nano-banana-mcp/dist/index.js
+claude mcp add nano-banana --env FLOW_OUTPUT_DIR=./images -- node /path/to/nano-banana-mcp/dist/index.js
 ```
+
+Add `--env FLOW_CDP_URL=http://127.0.0.1:9222` only if you want to force a specific Chrome instead of the automatic
+choice.
 
 Or by hand, in your MCP client's config:
 
@@ -212,7 +231,6 @@ Or by hand, in your MCP client's config:
       "command": "node",
       "args": ["/path/to/nano-banana-mcp/dist/index.js"],
       "env": {
-        "FLOW_CDP_URL": "http://127.0.0.1:9222",
         "FLOW_OUTPUT_DIR": "./images",
         "FLOW_MAX_COST": "0"
       }
@@ -262,13 +280,12 @@ decide whether it's worth another try.
 
 ### `generate_batch`
 
-Generates several **different** prompts at once — one browser tab per prompt, up to 4 jobs, each with its own optional
-`size`, `aspect` and `basename`. Shared `out_dir`, `format`, `fit` and `background`.
+Generates several **different** prompts in one call, **queued in the same Flow tab**: up to 8 jobs, each with its
+own optional `size`, `aspect`, `basename`, `reference_images` and `reference_library_names`. Shared `out_dir`,
+`format`, `fit`, `background` and `upscale`.
 
-Chrome freezes `requestAnimationFrame` in background tabs, so the UI can only be driven in the frontmost one. The tool
-splits each job in two phases: the UI phase (settings + submit, a few seconds) runs one tab at a time, bringing each to
-the front; the wait for Flow's answer — which is what actually takes time — runs in parallel for all of them. Two jobs
-land in roughly the time of one and a half.
+Flow accepts a new prompt while the previous ones are still generating, so the tool sends them one after another
+without waiting, and collects everything at the end. No extra tabs are opened. Three prompts land in about 40 seconds.
 
 One failed job doesn't sink the rest: you get the saved files that worked and a per-job error for the ones that didn't.
 
@@ -287,6 +304,13 @@ something generated earlier, or pulling several sizes out of the same original. 
 
 Upscales an image that already exists in the open project, by media id, with Flow's own upscaler, and saves it
 (`out_file`, optional `size`/`fit`/`background`). `target` is `2k` (default) or `4k`.
+
+### `generate_video`
+
+Generates a video with Veo (text to video, `16:9` or `9:16`) and saves it as `.mp4`. **Video costs credits**, so it
+only runs when `FLOW_MAX_COST` is above the cost Flow quotes; otherwise it refuses before sending anything. The
+result is downloaded at its original 720p (Flow's 1080p and 4K are upscales and are never chosen). Videos take a few
+minutes.
 
 ## Upscaling
 
@@ -311,7 +335,8 @@ tab, and upscales run one at a time.
 
 | Variable                   | Default                  | What it does                                     |
 | -------------------------- | ------------------------ | ------------------------------------------------ |
-| `FLOW_CDP_URL`             | `http://127.0.0.1:9222`  | Chrome's debugging endpoint                      |
+| `FLOW_CDP_URL`             | automatic                | Force a Chrome debugging endpoint (`http://…` or `ws://…`). Unset: your everyday Chrome if remote debugging is allowed, else `http://127.0.0.1:9222` |
+| `FLOW_CHROME_USER_DATA`    | Chrome's default folder  | Where to look for `DevToolsActivePort`, if your Chrome uses a non-default user-data folder |
 | `FLOW_OUTPUT_DIR`          | `~/nano-banana-images`   | Where images are saved                           |
 | `FLOW_MAX_COST`            | `0`                      | Credit ceiling per generation                    |
 | `FLOW_GENERATE_TIMEOUT_MS` | `180000`                 | How long to wait for Flow to answer              |
@@ -340,33 +365,31 @@ FLOW_LANG=es node dist/index.js
 
 Code comments stay in Spanish. That's a choice about how this codebase is written, not something a user ever sees.
 
-## Generating in parallel
+## Generating several at once: one tab, queued
 
-The composer is a single element per tab, so two generations in the same tab overwrite each other's prompt. Give each
-worker its own tab and they don't collide — each waits for its own network response, so there's no question which
-image belongs to whom.
+The server works in **a single Flow tab** and never opens extra ones. It doesn't need to: the composer frees up as
+soon as a prompt is sent, and Flow keeps generating it while you send the next one.
 
-The `generate_batch` tool does this for you: up to 4 different prompts, one tab per prompt. There's one wrinkle worth
-knowing: Chrome freezes `requestAnimationFrame` in background tabs, so React stops responding to clicks in any tab
-that isn't frontmost. That's why each job's UI phase (settings + submit) runs one tab at a time, and only the wait for
-Flow's answer runs truly in parallel. The wait is where nearly all the time goes, so the speedup survives.
+Which image belongs to which prompt: Flow draws each submission **above** the previous one, and the images take their
+submission's place even if they finish in a different order. So, in screen order, the last prompt's images come
+first, and the queue hands them out from the end. Reference images are uploaded **before** the queue starts, because
+an uploaded image shows up in the grid just like a generated one.
 
-For scripts, the same two-phase split is available as a library API:
+The `generate_batch` tool does this for you. For scripts, the same queue is available as a library API:
 
 ```js
-import { ensureFlowTabs } from "nano-banana-mcp/dist/browser.js";
-import { startGeneration } from "nano-banana-mcp/dist/generate.js";
+import { generateQueue } from "nano-banana-mcp/dist/generate.js";
 
-const tabs = await ensureFlowTabs(4);
-const started = [];
-for (const [i, prompt] of prompts.entries()) {
-  await tabs[i].page.bringToFront();                  // UI phase: one at a time
-  started.push(await startGeneration({ prompt, aspect: "16:9", count: 4, page: tabs[i].page }));
-}
-const results = await Promise.all(started.map((s) => s.harvest));  // the wait: all at once
+const { results } = await generateQueue([
+  { prompt: "a red apple on a white table", aspect: "1:1", count: 1 },
+  { prompt: "a blue vintage car on an empty street", aspect: "16:9", count: 2 },
+  { prompt: "macro of these veneer sheets", aspect: "4:3", count: 1, referenceImages: ["ref.jpg"] },
+]);
+// results[i].images → that job's images; results[i].error → why it gave none
 ```
 
-Four tabs × four variants is sixteen images per cycle. In practice that's roughly 40 images in five minutes.
+The UI is driven in the foreground (Chrome freezes `requestAnimationFrame` in background tabs, and React stops
+responding there), so the Flow tab is brought to the front while prompts are being sent.
 
 ## On cost
 
@@ -377,10 +400,9 @@ cost and refuses to send anything above the ceiling.
 
 ## Roadmap
 
-**Video and scene generation are in development.** Not shipped yet — today this server generates images only.
-
-Video is where the cost gate stops being a formality, so it will land behind an explicit, non-zero `FLOW_MAX_COST`
-and a per-call confirmation. Nothing that spends credits will ever run because a default let it.
+**Video is in (`generate_video`, Veo), scenes are not yet.** Video is where the cost gate stops being a formality: it
+only runs with an explicit, non-zero `FLOW_MAX_COST` above Flow's quoted cost, and it downloads the original 720p
+(never the paid upscales). Nothing that spends credits will ever run because a default let it.
 
 ## Privacy and credentials
 
@@ -394,17 +416,15 @@ and a per-call confirmation. Nothing that spends credits will ever run because a
 Run `node scripts/doctor.mjs` first — it checks the whole chain in order and stops at the first thing that's wrong.
 The messages below are the English ones; with `FLOW_LANG=es` you'll see the Spanish equivalents.
 
-> **Known issue — Google is rolling out a new Flow interface.** If generation fails with **"Couldn't find the
-> generation settings control on the page"**, and your Flow settings open as a full page with a `tune` button
-> instead of a small popover, you have the new UI. It changes three things at once: the settings trigger, the
-> panel (which no longer quotes a cost, so the cost gate refuses to send), and the generation endpoint itself.
-> This is diagnosed in detail and being worked on in
-> [issue #1](https://github.com/frannkurt/nano-banana-mcp/issues/1) — there's nothing to fix on your end yet.
-> The rollout is gradual, so accounts still on the old interface are unaffected.
+> **On the new Flow interface (flow.google.com).** It's supported: images, upscaling, references, the queue and
+> video were verified against it. On it, the credit balance can't be read anymore (the session endpoint is gone), so
+> `flow_status` shows it as unknown; the signed-in account is read from the page instead.
 
-**"Couldn't connect to Chrome at …"** — Chrome isn't running with `--remote-debugging-port=9222`, or you launched it
-without its own `--user-data-dir` and it attached to an existing instance. Close every window of that profile and
-relaunch with the command above.
+**"Couldn't connect to Chrome at …"** — with your everyday Chrome: open `chrome://inspect/#remote-debugging`, check
+that "Allow remote debugging for this browser instance" is ticked and that it shows the server running, and accept the
+prompt Chrome shows when the server attaches. With a separate Chrome: it isn't running with
+`--remote-debugging-port=9222`, or you launched it without its own `--user-data-dir` and it attached to an existing
+instance. Close every window of that profile and relaunch with the command above.
 
 **"No Flow (flow.google.com) tab is open in that Chrome"** — open Flow in that Chrome window.
 
@@ -412,7 +432,7 @@ relaunch with the command above.
 contain `/project/`.
 
 **"I couldn't read what this generation would cost, so I'm not sending it"** — Flow's interface changed. If the text
-the error quotes mentions "Confirm before generating", that's the new UI: see the known issue above. Otherwise the
+the error quotes mentions "Confirm before generating", see the note on the new interface above. Otherwise the
 error includes the text it did read; open an issue pasting it and it gets fixed in one place. Either way this is a
 *refusal*, not a crash: nothing was sent and nothing was spent.
 

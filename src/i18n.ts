@@ -50,8 +50,8 @@ export const M = {
     }),
   chromeUnreachableHint: () =>
     p({
-      en: "Launch Chrome with --remote-debugging-port=9222 and its own --user-data-dir, then open flow.google.com. See the README.",
-      es: "Abrí Chrome con --remote-debugging-port=9222 y un --user-data-dir propio, después entrá a flow.google.com. Ver el README.",
+      en: "To use your everyday Chrome (144+): open chrome://inspect/#remote-debugging, tick \"Allow remote debugging for this browser instance\" and accept the prompt Chrome shows when the connector attaches. Alternatively, set FLOW_CDP_URL to a Chrome launched with --remote-debugging-port. See the README.",
+      es: "Para usar tu Chrome de todos los días (144 o más): abrí chrome://inspect/#remote-debugging, tildá \"Permitir la depuración remota para esta instancia del navegador\" y aceptá el aviso que muestra Chrome cuando el conector se engancha. Si no, poné FLOW_CDP_URL apuntando a un Chrome lanzado con --remote-debugging-port. Ver el README.",
     }),
   noContext: () =>
     p({
@@ -308,7 +308,10 @@ export const M = {
     }),
 
   // ---- index.ts ----
-  statusBrowser: (url: string) => p({ en: `Browser:   connected (${url})`, es: `Navegador:  conectado (${url})` }),
+  statusBrowser: (ep: { url: string; source: "env" | "user-chrome" | "port" }) =>
+    ep.source === "user-chrome"
+      ? p({ en: "Browser:   your everyday Chrome (connected)", es: "Navegador:  tu Chrome de todos los días (conectado)" })
+      : p({ en: `Browser:   connected (${ep.url})`, es: `Navegador:  conectado (${ep.url})` }),
   statusSession: (who: string | null) =>
     who
       ? p({ en: `Session:   signed in as ${who}`, es: `Sesión:     iniciada como ${who}` })
@@ -391,8 +394,8 @@ export const M = {
     }),
   toolBatch: () =>
     p({
-      en: "Generate several DIFFERENT prompts at once, one browser tab per prompt, in parallel. Much faster than calling generate_image repeatedly. Up to 4 jobs; each can have its own size and filename. Reference images are not supported here — use generate_image for that.",
-      es: "Genera varios prompts DISTINTOS a la vez, una pestaña del navegador por prompt, en paralelo. Mucho más rápido que llamar generate_image repetidas veces. Hasta 4 trabajos; cada uno con su propio tamaño y nombre de archivo. No soporta imágenes de referencia: para eso está generate_image.",
+      en: "Generate several DIFFERENT prompts in one call. All of them go to the SAME Flow tab, queued: each prompt is sent while the previous ones are still generating, and everything is collected at the end. No extra tabs are opened. Up to 8 jobs; each can have its own size, filename and reference images. Optional upscale (2k) applies to all.",
+      es: "Genera varios prompts DISTINTOS en una sola llamada. Todos van a la MISMA pestaña de Flow, encolados: cada prompt se manda mientras los anteriores siguen generando y todo se cosecha al final. No abre pestañas de más. Hasta 8 trabajos; cada uno con su propio tamaño, nombre de archivo e imágenes de referencia. El upscale (2k) opcional vale para todos.",
     }),
   argOnly: () =>
     p({
@@ -401,8 +404,8 @@ export const M = {
     }),
   argJobs: () =>
     p({
-      en: "The jobs to run in parallel. Each needs a prompt; size (e.g. 1200x630), aspect and basename are optional per job.",
-      es: "Los trabajos a correr en paralelo. Cada uno lleva su prompt; size (p. ej. 1200x630), aspect y basename son opcionales por trabajo.",
+      en: "The jobs to queue. Each needs a prompt; size (e.g. 1200x630), aspect, basename, reference_images and reference_library_names are optional per job.",
+      es: "Los trabajos a encolar. Cada uno lleva su prompt; size (p. ej. 1200x630), aspect, basename, reference_images y reference_library_names son opcionales por trabajo.",
     }),
   libraryFetchFailed: (status: number) =>
     p({

@@ -158,9 +158,24 @@ npm run build
 
 ## Puesta en marcha
 
-### 1. Abrí Chrome con depuración remota
+### 1. Dejá que el servidor llegue a Chrome
 
-**Lo más fácil — usá el launcher incluido** (perfil dedicado y persistente: te logueás una sola vez):
+**Recomendado — tu Chrome de todos los días (versión 144 o más nueva).** Sin un segundo navegador, con tu sesión,
+tus extensiones y tus pestañas:
+
+1. Abrí `chrome://inspect/#remote-debugging` y tildá **"Permitir la depuración remota para esta instancia del
+   navegador"** ("Allow remote debugging for this browser instance"). Abajo Chrome tiene que mostrar el servidor
+   corriendo en `127.0.0.1:9222`.
+2. La primera vez que el servidor se engancha, Chrome pregunta si lo permitís. Aceptá. El servidor mantiene esa
+   conexión toda la sesión, así que no vuelve a preguntar en cada imagen.
+
+El servidor lo encuentra solo: Chrome anota el puerto en `DevToolsActivePort`, dentro de su carpeta de datos, y el
+servidor lo lee de ahí. Para esto, dejá `FLOW_CDP_URL` sin poner.
+
+**Alternativa — un Chrome aparte con su propio perfil.** Chrome no abre `--remote-debugging-port` sobre tu perfil de
+todos los días, por eso esto necesita un perfil propio (se va a ver como un Chrome nuevo, sin tus extensiones). Si no
+encuentra nada por la opción de arriba, el servidor cae solo al puerto 9222. Lo más fácil es el launcher incluido
+(perfil dedicado y persistente: te logueás una sola vez):
 
 ```bash
 npm run chrome
@@ -191,18 +206,23 @@ google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.nano-banana-m
 
 ### 2. Iniciá sesión y abrí un proyecto
 
-En esa ventana, entrá con tu cuenta de Google y abrí un proyecto de Flow. La URL tiene que quedar en
+En ese Chrome, entrá con tu cuenta de Google y abrí un proyecto de Flow. La URL tiene que quedar en
 `flow.google.com/project/<id>`.
 
-Sin un proyecto abierto no existe el compositor, y sin compositor no se puede generar.
+Sin un proyecto abierto no existe el compositor, y sin compositor no se puede generar. El servidor recuerda el último
+proyecto en el que trabajó (`~/.nano-banana-mcp/state.json`): si Flow está abierto en la portada, o no está abierto,
+lleva una sola pestaña a ese proyecto.
 
 ### 3. Registrá el servidor
 
 En Claude Code:
 
 ```bash
-claude mcp add nano-banana --env FLOW_CDP_URL=http://127.0.0.1:9222 --env FLOW_OUTPUT_DIR=./imagenes -- node /ruta/a/nano-banana-mcp/dist/index.js
+claude mcp add nano-banana --env FLOW_OUTPUT_DIR=./imagenes -- node /ruta/a/nano-banana-mcp/dist/index.js
 ```
+
+Agregá `--env FLOW_CDP_URL=http://127.0.0.1:9222` solo si querés forzar un Chrome puntual en vez de la elección
+automática.
 
 O a mano, en la configuración de tu cliente MCP:
 
@@ -213,7 +233,6 @@ O a mano, en la configuración de tu cliente MCP:
       "command": "node",
       "args": ["/ruta/a/nano-banana-mcp/dist/index.js"],
       "env": {
-        "FLOW_CDP_URL": "http://127.0.0.1:9222",
         "FLOW_OUTPUT_DIR": "./imagenes",
         "FLOW_MAX_COST": "0"
       }
@@ -263,13 +282,12 @@ salió y decidir si vale la pena reintentar.
 
 ### `generate_batch`
 
-Genera varios prompts **distintos** a la vez: una pestaña del navegador por prompt, hasta 4 trabajos, cada uno con su
-`size`, `aspect` y `basename` opcionales. `out_dir`, `format`, `fit` y `background` son compartidos.
+Genera varios prompts **distintos** en una sola llamada, **encolados en la misma pestaña de Flow**: hasta 8
+trabajos, cada uno con su `size`, `aspect`, `basename`, `reference_images` y `reference_library_names` opcionales.
+`out_dir`, `format`, `fit`, `background` y `upscale` son compartidos.
 
-Chrome congela el `requestAnimationFrame` de las pestañas de fondo, así que la interfaz solo se puede manejar en la
-que está al frente. La herramienta parte cada trabajo en dos fases: la de UI (configurar + enviar, unos segundos)
-corre de a una pestaña, trayendo cada una al frente; la espera de la respuesta de Flow —que es lo que de verdad
-tarda— corre en paralelo para todas. Dos trabajos salen en más o menos el tiempo de uno y medio.
+Flow acepta un prompt nuevo mientras los anteriores siguen generando, así que la herramienta los manda uno atrás de
+otro sin esperar y cosecha todo al final. No abre pestañas de más. Tres prompts salen en unos 40 segundos.
 
 Un trabajo fallido no hunde al resto: recibís los archivos que salieron bien y el error puntual de los que no.
 
@@ -288,6 +306,13 @@ recuperar algo generado antes o para sacar varios tamaños del mismo original. T
 
 Escala una imagen que ya existe en el proyecto abierto, por su id de medio, con el escalador propio de Flow, y la
 guarda (`out_file`, con `size`/`fit`/`background` opcionales). `target` es `2k` (por defecto) o `4k`.
+
+### `generate_video`
+
+Genera un vídeo con Veo (de texto a vídeo, `16:9` o `9:16`) y lo guarda como `.mp4`. **El vídeo cuesta puntos**, así
+que solo corre si `FLOW_MAX_COST` está por encima de lo que cotiza Flow; si no, se niega antes de enviar nada. El
+resultado se baja en su 720p original (el 1080p y el 4K de Flow son escalados y nunca se eligen). Los vídeos tardan
+unos minutos.
 
 ## Escalado
 
@@ -311,7 +336,8 @@ la imagen tiene que pertenecer al proyecto abierto en la pestaña de Flow, y los
 
 | Variable                   | Por defecto                    | Qué hace                                            |
 | -------------------------- | ------------------------------ | --------------------------------------------------- |
-| `FLOW_CDP_URL`             | `http://127.0.0.1:9222`        | Endpoint de depuración del Chrome                   |
+| `FLOW_CDP_URL`             | automático                     | Forzar un endpoint de depuración (`http://…` o `ws://…`). Sin poner: tu Chrome de todos los días si permite la depuración remota; si no, `http://127.0.0.1:9222` |
+| `FLOW_CHROME_USER_DATA`    | la carpeta de siempre de Chrome | Dónde buscar `DevToolsActivePort`, si tu Chrome usa otra carpeta de datos |
 | `FLOW_OUTPUT_DIR`          | `~/nano-banana-images`         | Dónde se guardan las imágenes                       |
 | `FLOW_MAX_COST`            | `0`                            | Techo de puntos por generación                      |
 | `FLOW_GENERATE_TIMEOUT_MS` | `180000`                       | Cuánto esperar la respuesta de Flow                 |
@@ -342,35 +368,31 @@ FLOW_LANG=es node dist/index.js
 Los comentarios del código siguen en español. Eso es una decisión sobre cómo está escrito este código, no algo que
 un usuario vea nunca.
 
-## Generar en paralelo
+## Generar varios a la vez: una pestaña, en cola
 
-El compositor es un único elemento por pestaña, así que dos generaciones en la misma se pisan escribiendo el prompt.
-Con una pestaña por hilo no chocan: cada una espera su propia respuesta de red, así que no hay duda sobre qué imagen
-es de quién.
+El servidor trabaja en **una sola pestaña de Flow** y nunca abre otras. No le hace falta: el compositor se libera
+apenas se envía un prompt, y Flow lo sigue generando mientras mandás el siguiente.
 
-La herramienta `generate_batch` hace esto sola: hasta 4 prompts distintos, una pestaña por prompt. Hay un detalle que
-vale la pena conocer: Chrome congela el `requestAnimationFrame` de las pestañas de fondo, así que React deja de
-responder a los clics en cualquier pestaña que no esté al frente. Por eso la fase de UI de cada trabajo (configurar +
-enviar) corre de a una pestaña, y solo la espera de la respuesta de Flow corre de verdad en paralelo. Como la espera
-es donde se va casi todo el tiempo, la ganancia sobrevive.
+A qué prompt pertenece cada imagen: Flow dibuja cada envío **arriba** del anterior, y las imágenes ocupan el lugar de
+su envío aunque terminen en otro orden. Entonces, en orden de pantalla, primero vienen las del último prompt, y la
+cola las reparte de atrás para adelante. Las imágenes de referencia se suben **antes** de arrancar la cola, porque una
+imagen subida aparece en la grilla igual que una generada.
 
-Para scripts, la misma separación en dos fases está disponible como API de librería:
+La herramienta `generate_batch` hace esto sola. Para scripts, la misma cola está disponible como API de librería:
 
 ```js
-import { ensureFlowTabs } from "nano-banana-mcp/dist/browser.js";
-import { startGeneration } from "nano-banana-mcp/dist/generate.js";
+import { generateQueue } from "nano-banana-mcp/dist/generate.js";
 
-const tabs = await ensureFlowTabs(4);
-const started = [];
-for (const [i, prompt] of prompts.entries()) {
-  await tabs[i].page.bringToFront();                  // fase de UI: de a una
-  started.push(await startGeneration({ prompt, aspect: "16:9", count: 4, page: tabs[i].page }));
-}
-const results = await Promise.all(started.map((s) => s.harvest));  // la espera: todas a la vez
+const { results } = await generateQueue([
+  { prompt: "una manzana roja sobre una mesa blanca", aspect: "1:1", count: 1 },
+  { prompt: "un auto antiguo azul en una calle vacía", aspect: "16:9", count: 2 },
+  { prompt: "macro de estas láminas", aspect: "4:3", count: 1, referenceImages: ["ref.jpg"] },
+]);
+// results[i].images → las imágenes de ese trabajo; results[i].error → por qué no dio ninguna
 ```
 
-Cuatro pestañas por cuatro variantes son dieciséis imágenes por ciclo. En la práctica, unas 40 imágenes en cinco
-minutos.
+La interfaz se maneja en primer plano (Chrome congela el `requestAnimationFrame` de las pestañas de fondo y React deja
+de responder ahí), así que la pestaña de Flow se trae al frente mientras se mandan los prompts.
 
 ## Sobre el costo
 
@@ -381,12 +403,10 @@ se niega a enviar cualquier cosa por encima del techo.
 
 ## Hoja de ruta
 
-**La generación de vídeo y de escenas está en desarrollo.** Todavía no está disponible: hoy este servidor genera
-solamente imágenes.
-
-El vídeo es donde el portón del costo deja de ser una formalidad, así que va a llegar detrás de un `FLOW_MAX_COST`
-explícito distinto de cero y una confirmación por llamada. Nada que gaste puntos va a correr porque un valor por
-defecto lo dejó pasar.
+**El vídeo ya está (`generate_video`, Veo); las escenas todavía no.** El vídeo es donde el portón del costo deja de
+ser una formalidad: solo corre con un `FLOW_MAX_COST` explícito, distinto de cero y mayor que lo que cotiza Flow, y
+baja el 720p original (nunca los escalados pagos). Nada que gaste puntos va a correr porque un valor por defecto lo
+dejó pasar.
 
 ## Privacidad y credenciales
 
@@ -400,17 +420,15 @@ defecto lo dejó pasar.
 Corré primero `node scripts/doctor.mjs`: revisa toda la cadena en orden y frena en lo primero que está mal. Los
 mensajes de abajo son los del español; con `FLOW_LANG=en` vas a ver los equivalentes en inglés.
 
-> **Problema conocido — Google está desplegando una interfaz nueva de Flow.** Si la generación falla con **"No
-> encontré el control de configuración de generación"**, y la configuración de Flow te abre como página completa
-> con un botón `tune` en vez de un popover chico, tenés la interfaz nueva. Cambia tres cosas a la vez: el
-> disparador de configuración, el panel (que ya no cotiza el costo, así que el portón se niega a enviar) y el
-> endpoint de generación. Está diagnosticado en detalle y en curso en el
-> [issue #1](https://github.com/frannkurt/nano-banana-mcp/issues/1) — todavía no hay nada que puedas arreglar de
-> tu lado. El despliegue es gradual, así que las cuentas que siguen con la interfaz vieja no están afectadas.
+> **Sobre la interfaz nueva de Flow (flow.google.com).** Está soportada: imágenes, escalado, referencias, la cola y
+> el vídeo se verificaron contra ella. En ella ya no se puede leer el saldo de puntos (el endpoint de sesión no
+> existe más), así que `flow_status` lo muestra como desconocido; la cuenta iniciada se lee de la página.
 
-**"No pude conectarme a Chrome"** — Chrome no está corriendo con `--remote-debugging-port=9222`, o lo abriste sin
-`--user-data-dir` propio y se pegó a una instancia que ya existía. Cerrá todas las ventanas de ese perfil y volvé a
-lanzarlo con el comando de arriba.
+**"No pude conectarme a Chrome"** — con tu Chrome de todos los días: abrí `chrome://inspect/#remote-debugging`,
+fijate que esté tildado "Permitir la depuración remota para esta instancia del navegador" y que muestre el servidor
+corriendo, y aceptá el aviso que muestra Chrome cuando el servidor se engancha. Con un Chrome aparte: no está corriendo
+con `--remote-debugging-port=9222`, o lo abriste sin `--user-data-dir` propio y se pegó a una instancia que ya existía.
+Cerrá todas las ventanas de ese perfil y volvé a lanzarlo con el comando de arriba.
 
 **"No hay ninguna pestaña de Flow (flow.google.com) abierta"** — abrí Flow en esa ventana de Chrome.
 
@@ -418,7 +436,7 @@ lanzarlo con el comando de arriba.
 `/project/`.
 
 **"No pude leer cuánto va a costar"** — la interfaz de Flow cambió. Si el texto que cita el error menciona "Confirm
-before generating", es la interfaz nueva: mirá el problema conocido de arriba. Si no, el mensaje incluye el texto que
+before generating", mirá la nota sobre la interfaz nueva de arriba. Si no, el mensaje incluye el texto que
 sí se leyó; abrí un issue pegándolo y se arregla en un solo lugar. En cualquier caso esto es una *negativa*, no un
 cuelgue: no se envió nada y no se gastó nada.
 

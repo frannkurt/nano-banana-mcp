@@ -1,4 +1,7 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { config } from "./config.js";
 import { FlowError } from "./types.js";
 import { M } from "./i18n.js";
@@ -12,20 +15,63 @@ const PROJECT_RE = /\/(?:tools\/flow\/)?project\/([0-9a-f-]{36})/i;
 
 let browser: Browser | null = null;
 
+/** Carpeta de datos del Chrome de todos los días, según el sistema. */
+function defaultUserDataDir(): string {
+  if (process.platform === "win32") {
+    const base = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
+    return path.join(base, "Google", "Chrome", "User Data");
+  }
+  if (process.platform === "darwin") return path.join(os.homedir(), "Library", "Application Support", "Google", "Chrome");
+  return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "google-chrome");
+}
+
+export interface Endpoint {
+  url: string;
+  /** De dónde salió: variable explícita, el Chrome de todos los días, o el puerto clásico. */
+  source: "env" | "user-chrome" | "port";
+}
+
 /**
- * Nos enganchamos a un Chrome que ya está corriendo con --remote-debugging-port.
- * Nunca lanzamos uno propio ni pedimos credenciales: la sesión es la que la
- * persona abrió a mano, y este proceso solo la usa prestada.
+ * A qué Chrome engancharse.
+ *
+ * Lo preferido es el Chrome que la persona ya usa, con su sesión, sus extensiones
+ * y sus pestañas. Chrome no deja abrir `--remote-debugging-port` sobre el perfil
+ * de todos los días, pero desde la versión 144 se puede permitir la conexión al
+ * navegador abierto en chrome://inspect/#remote-debugging. Con eso activado,
+ * Chrome escribe el puerto y la ruta del WebSocket en `DevToolsActivePort`, dentro
+ * de su carpeta de datos, y pide permiso a la persona en cada conexión nueva.
+ *
+ * Orden: FLOW_CDP_URL si está puesta (http://… o ws://…, para un Chrome lanzado a
+ * mano); si no, el `DevToolsActivePort` del Chrome de todos los días; si no, el
+ * puerto clásico 9222.
+ */
+export function resolveEndpoint(): Endpoint {
+  if (config.cdpUrl) return { url: config.cdpUrl, source: "env" };
+  const archivo = path.join(config.chromeUserDataDir || defaultUserDataDir(), "DevToolsActivePort");
+  if (existsSync(archivo)) {
+    const [puerto, ruta] = readFileSync(archivo, "utf8").split(/\r?\n/);
+    if (puerto && /^\d+$/.test(puerto.trim()) && ruta?.trim()) {
+      return { url: `ws://127.0.0.1:${puerto.trim()}${ruta.trim()}`, source: "user-chrome" };
+    }
+  }
+  return { url: "http://127.0.0.1:9222", source: "port" };
+}
+
+/**
+ * Nos enganchamos a un Chrome que ya está corriendo. Nunca lanzamos uno propio ni
+ * pedimos credenciales: la sesión es la que la persona abrió a mano, y este
+ * proceso solo la usa prestada.
+ *
+ * La conexión se reusa entre llamadas: con el Chrome de todos los días, cada
+ * conexión nueva hace que Chrome pida permiso otra vez.
  */
 async function attach(): Promise<BrowserContext> {
   if (!browser || !browser.isConnected()) {
+    const ep = resolveEndpoint();
     try {
-      browser = await chromium.connectOverCDP(config.cdpUrl);
+      browser = await chromium.connectOverCDP(ep.url, { timeout: 60_000 });
     } catch (err) {
-      throw new FlowError(
-        M.chromeUnreachable(config.cdpUrl, (err as Error).message),
-        M.chromeUnreachableHint(),
-      );
+      throw new FlowError(M.chromeUnreachable(ep.url, (err as Error).message), M.chromeUnreachableHint());
     }
   }
   const ctx = browser.contexts()[0];
@@ -39,55 +85,62 @@ export interface FlowTab {
   projectId: string | null;
 }
 
-/** Ubica la pestaña de Flow. Si hay un proyecto abierto, la prefiere. */
+/** Último proyecto usado, para volver a él si no queda ninguna pestaña de Flow. */
+const ESTADO = path.join(os.homedir(), ".nano-banana-mcp", "state.json");
+
+function leerUltimoProyecto(): string | null {
+  try {
+    const j = JSON.parse(readFileSync(ESTADO, "utf8")) as { lastProject?: string };
+    return j.lastProject && /^[0-9a-f-]{36}$/i.test(j.lastProject) ? j.lastProject : null;
+  } catch {
+    return null;
+  }
+}
+
+function guardarUltimoProyecto(id: string): void {
+  try {
+    mkdirSync(path.dirname(ESTADO), { recursive: true });
+    writeFileSync(ESTADO, JSON.stringify({ lastProject: id }));
+  } catch {
+    /* recordar el proyecto es una comodidad: si no se puede, no es fatal */
+  }
+}
+
+/**
+ * La ÚNICA pestaña de Flow con la que se trabaja.
+ *
+ * Se reusa siempre la que ya está abierta (la de un proyecto, si hay). Nunca se
+ * abren pestañas de más: si no hay ninguna de Flow, se abre UNA, en el último
+ * proyecto usado si se conoce. Las demás pestañas de la persona no se tocan.
+ */
 export async function getFlowTab(): Promise<FlowTab> {
   const context = await attach();
   const pages = context.pages().filter((p) => isFlowUrl(p.url()));
 
-  if (pages.length === 0) {
-    throw new FlowError(M.noFlowTab(), M.noFlowTabHint());
+  let page = pages.find((p) => PROJECT_RE.test(p.url())) ?? pages[0];
+  if (page && !PROJECT_RE.test(page.url())) {
+    // Flow abierto pero en la portada: la misma pestaña va al último proyecto.
+    const ultimo = leerUltimoProyecto();
+    if (ultimo) {
+      await page.goto(`https://flow.google.com/project/${ultimo}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      await page.waitForSelector('[contenteditable="true"]', { timeout: 60_000 }).catch(() => {});
+    }
+  }
+  if (!page) {
+    const ultimo = leerUltimoProyecto();
+    page = await context.newPage();
+    await page.goto(ultimo ? `https://flow.google.com/project/${ultimo}` : "https://flow.google.com", {
+      waitUntil: "domcontentloaded",
+      timeout: 60_000,
+    });
+    if (!ultimo) throw new FlowError(M.noProjectTab(), M.noProjectTabHint());
+    // React monta el compositor después del load.
+    await page.waitForSelector('[contenteditable="true"]', { timeout: 60_000 }).catch(() => {});
   }
 
-  // Una pestaña dentro de un proyecto es la única donde existe el compositor.
-  const page = pages.find((p) => PROJECT_RE.test(p.url())) ?? pages[0]!;
-  return { page, context, projectId: PROJECT_RE.exec(page.url())?.[1] ?? null };
-}
-
-/**
- * Todas las pestañas que tienen un proyecto abierto.
- *
- * Una por hilo es lo que habilita generar en paralelo: el cuello de botella no
- * es la red sino el compositor, que es un único elemento por pestaña.
- */
-export async function listFlowTabs(): Promise<FlowTab[]> {
-  const context = await attach();
-  return context
-    .pages()
-    .filter((p) => isFlowUrl(p.url()) && PROJECT_RE.test(p.url()))
-    .map((page) => ({ page, context, projectId: PROJECT_RE.exec(page.url())?.[1] ?? null }));
-}
-
-/**
- * Garantiza al menos `n` pestañas con el proyecto abierto, clonando la primera
- * si faltan. Devuelve exactamente `n`.
- */
-export async function ensureFlowTabs(n: number): Promise<FlowTab[]> {
-  const existing = await listFlowTabs();
-  const first = existing[0];
-  if (!first) {
-    throw new FlowError(M.noProjectTab(), M.noProjectTabHint());
-  }
-
-  const tabs = [...existing];
-  while (tabs.length < n) {
-    const page = await first.context.newPage();
-    await page.goto(first.page.url(), { waitUntil: "domcontentloaded", timeout: 60_000 });
-    // React monta el compositor despues del load; sin esta espera el primer
-    // prompt de esa pestaña se escribiria en el vacio.
-    await page.waitForSelector('[contenteditable="true"]', { timeout: 60_000 });
-    tabs.push({ page, context: first.context, projectId: first.projectId });
-  }
-  return tabs.slice(0, n);
+  const projectId = PROJECT_RE.exec(page.url())?.[1] ?? null;
+  if (projectId) guardarUltimoProyecto(projectId);
+  return { page, context, projectId };
 }
 
 /**
@@ -115,7 +168,23 @@ export async function readStatus(): Promise<Status> {
       const j = (await r.json()) as { user?: { email?: string } };
       return j?.user?.email ?? null;
     })
-    .catch(() => null);
+    .catch(() => null)
+    // flow.google.com ya no tiene ese endpoint (devuelve la página). La cuenta está
+    // en la etiqueta del botón de Google: "Cuenta de Google: Nombre (correo)",
+    // en el idioma que sea; se toma el correo entre paréntesis.
+    .then(
+      (cuenta) =>
+        cuenta ??
+        page
+          .evaluate(() => {
+            for (const el of document.querySelectorAll("[aria-label]")) {
+              const m = /\(([^()\s]+@[^()\s]+)\)/.exec(el.getAttribute("aria-label") || "");
+              if (m) return m[1]!;
+            }
+            return null;
+          })
+          .catch(() => null),
+    );
 
   const credits = await readCredits(page);
 
@@ -158,7 +227,10 @@ export async function readCredits(page: Page): Promise<{ credits: number; tier: 
     .catch(() => null);
 }
 
+/**
+ * Suelta la conexión SIN cerrar el navegador. `browser.close()` sobre una
+ * conexión CDP puede cerrar el Chrome entero, y ese Chrome es el de la persona.
+ */
 export async function disconnect(): Promise<void> {
-  if (browser?.isConnected()) await browser.close();
   browser = null;
 }

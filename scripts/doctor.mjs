@@ -20,7 +20,12 @@ const T = {
     ceiling: "Ceiling: ",
     chromeOk: (v) => `Chrome reachable — ${v}`,
     chromeBad: (url) => `Nothing is listening on ${url}`,
-    chromeFix: (cmd) => `Launch Chrome with remote debugging, on a profile separate from your everyday one:
+    chromeFix: (cmd) => `Recommended — use your everyday Chrome (version 144 or newer):
+  1. Open chrome://inspect/#remote-debugging
+  2. Tick "Allow remote debugging for this browser instance"
+  3. Run this again and accept the prompt Chrome shows.
+
+Alternative — a separate Chrome with its own profile, then set FLOW_CDP_URL=http://127.0.0.1:9222:
 
 ${cmd}
 
@@ -28,7 +33,7 @@ If you already did and it still fails, it most likely attached to an existing in
 close EVERY window of that profile and reopen it with the command above.`,
     tabOk: (url) => `Flow tab found — ${url}`,
     tabFix: `Open Flow in that Chrome window and go into a project:
-https://labs.google/fx/tools/flow`,
+https://flow.google.com`,
     signedOk: (who) => `Signed in — ${who}`,
     signedBad: "The Google session is not signed in on that window",
     signedFix: `Sign in with your Google account in that same Chrome window. This project never asks for or
@@ -36,7 +41,7 @@ handles your password: it attaches to the session you open yourself.`,
     projectOk: (id) => `Project open — ${id}`,
     projectBad: "Flow is open but you are not inside a project",
     projectFix: `You're on the project list. Open one: the URL must end up at
-labs.google/fx/tools/flow/project/<id>
+flow.google.com/project/<id>
 
 Without an open project there is no composer, and nothing can be generated.`,
     composerOk: "Composer ready",
@@ -53,7 +58,12 @@ If it persists, Flow's interface may have changed — open an issue using the
     ceiling: "Techo:   ",
     chromeOk: (v) => `Chrome accesible — ${v}`,
     chromeBad: (url) => `No hay ningún Chrome escuchando en ${url}`,
-    chromeFix: (cmd) => `Lanzá Chrome con depuración remota, en un perfil aparte del que usás todos los días:
+    chromeFix: (cmd) => `Recomendado — usar tu Chrome de todos los días (versión 144 o más nueva):
+  1. Abrí chrome://inspect/#remote-debugging
+  2. Tildá "Permitir la depuración remota para esta instancia del navegador"
+  3. Volvé a correr esto y aceptá el aviso que muestra Chrome.
+
+Alternativa — un Chrome aparte con su propio perfil, y FLOW_CDP_URL=http://127.0.0.1:9222:
 
 ${cmd}
 
@@ -61,7 +71,7 @@ Si ya lo lanzaste y sigue fallando, lo más probable es que se haya pegado a una
 cerrá TODAS las ventanas de ese perfil y volvé a abrirlo con el comando de arriba.`,
     tabOk: (url) => `Pestaña de Flow encontrada — ${url}`,
     tabFix: `Abrí Flow en esa ventana de Chrome y entrá a un proyecto:
-https://labs.google/fx/tools/flow`,
+https://flow.google.com`,
     signedOk: (who) => `Sesión iniciada — ${who}`,
     signedBad: "La sesión de Google no está iniciada en esa ventana",
     signedFix: `Entrá con tu cuenta de Google en esa misma ventana de Chrome. Este proyecto nunca pide ni maneja
@@ -69,7 +79,7 @@ tu contraseña: se engancha a la sesión que abrís vos.`,
     projectOk: (id) => `Proyecto abierto — ${id}`,
     projectBad: "Hay Flow abierto pero no estás dentro de un proyecto",
     projectFix: `Estás en la lista de proyectos. Abrí uno: la URL tiene que quedar en
-labs.google/fx/tools/flow/project/<id>
+flow.google.com/project/<id>
 
 Sin un proyecto abierto no existe el compositor, y no se puede generar.`,
     composerOk: "Compositor listo",
@@ -104,27 +114,40 @@ function taparCorreo(correo) {
 }
 
 const chrome = {
-  win: `"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222 --user-data-dir="%USERPROFILE%\\.nano-banana-mcp\\chrome" https://labs.google/fx/tools/flow`,
-  mac: `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="$HOME/.nano-banana-mcp/chrome" https://labs.google/fx/tools/flow`,
-  linux: `google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.nano-banana-mcp/chrome" https://labs.google/fx/tools/flow`,
+  win: `"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222 --user-data-dir="%USERPROFILE%\\.nano-banana-mcp\\chrome" https://flow.google.com`,
+  mac: `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="$HOME/.nano-banana-mcp/chrome" https://flow.google.com`,
+  linux: `google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.nano-banana-mcp/chrome" https://flow.google.com`,
 };
 const lanzar =
   process.platform === "win32" ? chrome.win : process.platform === "darwin" ? chrome.mac : chrome.linux;
 
 console.log(`\n${T.title}\n`);
-console.log(`  CDP:     ${config.cdpUrl}`);
+const { resolveEndpoint } = await import("../dist/browser.js");
+const ep = resolveEndpoint();
+console.log(`  CDP:     ${ep.source === "user-chrome" ? "Chrome de todos los días / everyday Chrome" : ep.url}`);
 console.log(`  ${T.out} ${config.outputDir}`);
 console.log(`  ${T.ceiling} ${config.maxCost}\n`);
 
-// 1. ¿Hay algo escuchando en el puerto de depuración?
-let version;
-try {
-  const r = await fetch(new URL("/json/version", config.cdpUrl), { signal: AbortSignal.timeout(4000) });
-  version = await r.json();
-} catch {
-  chau(T.chromeBad(config.cdpUrl), T.chromeFix(lanzar));
+// 1. ¿Hay un Chrome al que engancharse? Con el Chrome de todos los días no hay
+// /json/version: la prueba es conectarse (y Chrome pide permiso).
+if (ep.source === "user-chrome") {
+  try {
+    const { getFlowTab } = await import("../dist/browser.js");
+    await getFlowTab();
+  } catch (e) {
+    if (/connect|ECONNREFUSED|WebSocket|Timeout/i.test(e.message)) chau(T.chromeBad(ep.url), T.chromeFix(lanzar));
+  }
+  console.log(`${OK} ${T.chromeOk("Chrome")}`);
+} else {
+  let version;
+  try {
+    const r = await fetch(new URL("/json/version", ep.url.replace(/^ws/, "http")), { signal: AbortSignal.timeout(4000) });
+    version = await r.json();
+  } catch {
+    chau(T.chromeBad(ep.url), T.chromeFix(lanzar));
+  }
+  console.log(`${OK} ${T.chromeOk(version["Browser"] ?? "?")}`);
 }
-console.log(`${OK} ${T.chromeOk(version["Browser"] ?? "?")}`);
 
 // 2. ¿Se puede hablar por CDP y hay una pestaña de Flow?
 let status;
